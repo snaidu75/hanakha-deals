@@ -4,8 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "18"
-  VITE_SUPABASE_URL = "https://jgymkhqrrkxgadebuffw.supabase.co"
-  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpneW1raHFycmt4Z2FkZWJ1ZmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MDA5OTEsImV4cCI6MjA2ODE3Njk5MX0.4mbND6XBuyIcbUxZAej4bwS8HNZchIjnxPilQJn6xCM"
+  VITE_SUPABASE_URL = "https://ytsvyxytwrphdwhweumi.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl0c3Z5eHl0d3JwaGR3aHdldW1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0MDIzMTksImV4cCI6MjA2Nzk3ODMxOX0.80HGyhasBcSKHLu1juN4UdT6Km8aDmqrhBVduYDQjZo"
 
 [[redirects]]
   from = "/*"
