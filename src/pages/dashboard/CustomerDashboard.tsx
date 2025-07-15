@@ -21,6 +21,11 @@ const CustomerDashboard: React.FC = () => {
   const downline = getDownline(userPosition?.id || '');
   const upline = getUpline(userPosition?.id || '');
 
+  // Mock statistics for demonstration
+  const mockStats = {
+    referrals: 24
+  };
+
   const stats = [
     {
       title: 'Total Referrals',
