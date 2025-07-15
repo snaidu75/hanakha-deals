@@ -35,82 +35,82 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export interface User {
   id: string
   email: string
-  user_type: 'customer' | 'company' | 'admin'
-  is_verified: boolean
-  email_verified: boolean
-  mobile_verified: boolean
-  is_active: boolean
-  created_at: string
-  updated_at: string
+  tu_user_type: 'customer' | 'company' | 'admin'
+  tu_is_verified: boolean
+  tu_email_verified: boolean
+  tu_mobile_verified: boolean
+  tu_is_active: boolean
+  tu_created_at: string
+  tu_updated_at: string
 }
 
 export interface UserProfile {
   id: string
-  user_id: string
-  first_name?: string
-  last_name?: string
-  username?: string
-  mobile?: string
-  gender?: string
-  sponsorship_number?: string
-  parent_account?: string
-  created_at: string
-  updated_at: string
+  tup_user_id: string
+  tup_first_name?: string
+  tup_last_name?: string
+  tup_username?: string
+  tup_mobile?: string
+  tup_gender?: string
+  tup_sponsorship_number?: string
+  tup_parent_account?: string
+  tup_created_at: string
+  tup_updated_at: string
 }
 
 export interface Company {
   id: string
-  user_id: string
-  company_name: string
-  brand_name?: string
-  business_type?: string
-  business_category?: string
-  registration_number: string
-  gstin: string
-  website_url?: string
-  official_email: string
-  affiliate_code?: string
-  verification_status: 'pending' | 'verified' | 'rejected'
-  created_at: string
-  updated_at: string
+  tc_user_id: string
+  tc_company_name: string
+  tc_brand_name?: string
+  tc_business_type?: string
+  tc_business_category?: string
+  tc_registration_number: string
+  tc_gstin: string
+  tc_website_url?: string
+  tc_official_email: string
+  tc_affiliate_code?: string
+  tc_verification_status: 'pending' | 'verified' | 'rejected'
+  tc_created_at: string
+  tc_updated_at: string
 }
 
 export interface SubscriptionPlan {
   id: string
-  name: string
-  description?: string
-  price: number
-  duration_days: number
-  features: string[]
-  is_active: boolean
-  created_at: string
-  updated_at: string
+  tsp_name: string
+  tsp_description?: string
+  tsp_price: number
+  tsp_duration_days: number
+  tsp_features: string[]
+  tsp_is_active: boolean
+  tsp_created_at: string
+  tsp_updated_at: string
 }
 
 export interface MLMTreeNode {
   id: string
-  user_id: string
-  parent_id?: string
-  left_child_id?: string
-  right_child_id?: string
-  level: number
-  position: 'left' | 'right' | 'root'
-  sponsorship_number: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
+  tmt_user_id: string
+  tmt_parent_id?: string
+  tmt_left_child_id?: string
+  tmt_right_child_id?: string
+  tmt_level: number
+  tmt_position: 'left' | 'right' | 'root'
+  tmt_sponsorship_number: string
+  tmt_is_active: boolean
+  tmt_created_at: string
+  tmt_updated_at: string
 }
 
 export interface OTPVerification {
   id: string
-  user_id: string
-  otp_code: string
-  otp_type: 'email' | 'mobile' | 'password_reset'
-  contact_info: string
-  is_verified: boolean
-  expires_at: string
-  attempts: number
-  created_at: string
+  tov_user_id: string
+  tov_otp_code: string
+  tov_otp_type: 'email' | 'mobile' | 'password_reset'
+  tov_contact_info: string
+  tov_is_verified: boolean
+  tov_expires_at: string
+  tov_attempts: number
+  tov_created_at: string
 }
 
 // API functions
@@ -142,10 +142,10 @@ export const verifyOTP = async (userId: string, otpCode: string, otpType: 'email
 
 export const getSubscriptionPlans = async () => {
   const { data, error } = await supabase
-    .from('subscription_plans')
+    .from('tbl_subscription_plans')
     .select('*')
-    .eq('is_active', true)
-    .order('price')
+    .eq('tsp_is_active', true)
+    .order('tsp_price')
 
   if (error) throw error
   return data
@@ -153,9 +153,9 @@ export const getSubscriptionPlans = async () => {
 
 export const getUserProfile = async (userId: string) => {
   const { data, error } = await supabase
-    .from('user_profiles')
+    .from('tbl_user_profiles')
     .select('*')
-    .eq('user_id', userId)
+    .eq('tup_user_id', userId)
     .single()
 
   if (error) throw error
@@ -164,9 +164,9 @@ export const getUserProfile = async (userId: string) => {
 
 export const getMLMTreeNode = async (userId: string) => {
   const { data, error } = await supabase
-    .from('mlm_tree')
+    .from('tbl_mlm_tree')
     .select('*')
-    .eq('user_id', userId)
+    .eq('tmt_user_id', userId)
     .single()
 
   if (error) throw error
@@ -175,7 +175,7 @@ export const getMLMTreeNode = async (userId: string) => {
 
 export const getSystemSettings = async () => {
   const { data, error } = await supabase
-    .from('system_settings')
+    .from('tbl_system_settings')
     .select('*')
 
   if (error) throw error
@@ -183,7 +183,7 @@ export const getSystemSettings = async () => {
   // Convert to key-value object
   const settings: Record<string, any> = {}
   data.forEach(setting => {
-    settings[setting.setting_key] = setting.setting_value
+    settings[setting.tss_setting_key] = setting.tss_setting_value
   })
   
   return settings

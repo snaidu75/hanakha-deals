@@ -86,27 +86,27 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([
     {
       id: '1',
-      name: 'Basic Plan',
-      price: 99,
-      duration: 30,
-      features: ['MLM Tree Access', 'Basic Dashboard', 'Email Support'],
-      isActive: true
+      tsp_name: 'Basic Plan',
+      tsp_price: 99,
+      tsp_duration_days: 30,
+      tsp_features: ['MLM Tree Access', 'Basic Dashboard', 'Email Support'],
+      tsp_is_active: true
     },
     {
       id: '2',
-      name: 'Premium Plan',
-      price: 199,
-      duration: 30,
-      features: ['MLM Tree Access', 'Advanced Dashboard', 'Priority Support', 'Analytics'],
-      isActive: true
+      tsp_name: 'Premium Plan',
+      tsp_price: 199,
+      tsp_duration_days: 30,
+      tsp_features: ['MLM Tree Access', 'Advanced Dashboard', 'Priority Support', 'Analytics'],
+      tsp_is_active: true
     },
     {
       id: '3',
-      name: 'Enterprise Plan',
-      price: 399,
-      duration: 30,
-      features: ['MLM Tree Access', 'Advanced Dashboard', 'Priority Support', 'Analytics', 'Custom Branding', 'API Access'],
-      isActive: true
+      tsp_name: 'Enterprise Plan',
+      tsp_price: 399,
+      tsp_duration_days: 30,
+      tsp_features: ['MLM Tree Access', 'Advanced Dashboard', 'Priority Support', 'Analytics', 'Custom Branding', 'API Access'],
+      tsp_is_active: true
     }
   ]);
 

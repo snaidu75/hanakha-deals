@@ -97,14 +97,14 @@ const Payment: React.FC = () => {
             <div className="border border-gray-200 rounded-lg p-6 mb-6">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="font-semibold text-gray-900">{selectedPlan.name}</h3>
-                  <p className="text-sm text-gray-600">{selectedPlan.duration} days subscription</p>
+                  <h3 className="font-semibold text-gray-900">{selectedPlan.tsp_name}</h3>
+                  <p className="text-sm text-gray-600">{selectedPlan.tsp_duration_days} days subscription</p>
                 </div>
-                <span className="text-xl font-bold text-gray-900">${selectedPlan.price}</span>
+                <span className="text-xl font-bold text-gray-900">${selectedPlan.tsp_price}</span>
               </div>
               
               <div className="space-y-2">
-                {selectedPlan.features.map((feature, index) => (
+                {selectedPlan.tsp_features.map((feature, index) => (
                   <div key={index} className="flex items-center space-x-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
                     <span className="text-sm text-gray-600">{feature}</span>
@@ -116,7 +116,7 @@ const Payment: React.FC = () => {
             <div className="border-t border-gray-200 pt-4">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="text-gray-900">${selectedPlan.price}</span>
+                <span className="text-gray-900">${selectedPlan.tsp_price}</span>
               </div>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-gray-600">Processing Fee</span>
@@ -124,7 +124,7 @@ const Payment: React.FC = () => {
               </div>
               <div className="flex justify-between items-center text-lg font-bold">
                 <span>Total</span>
-                <span>${selectedPlan.price}</span>
+                <span>${selectedPlan.tsp_price}</span>
               </div>
             </div>
 
@@ -286,7 +286,7 @@ const Payment: React.FC = () => {
                 ) : (
                   <>
                     <Lock className="h-5 w-5" />
-                    <span>Pay ${selectedPlan.price}</span>
+                    <span>Pay ${selectedPlan.tsp_price}</span>
                   </>
                 )}
               </button>

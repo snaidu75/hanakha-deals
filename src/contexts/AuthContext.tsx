@@ -71,9 +71,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let userData = null;
       try {
         const { data: userDataArray, error: userError } = await supabase
-          .from('users')
+          .from('tbl_users')
           .select('*')
-          .eq('id', userId);
+          .eq('tu_id', userId);
 
         if (userError) {
           console.warn('RLS blocking users table access:', userError);
@@ -88,9 +88,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let profileData = null;
       try {
         const { data: profileDataArray } = await supabase
-          .from('user_profiles')
+          .from('tbl_user_profiles')
           .select('*')
-          .eq('user_id', userId);
+          .eq('tup_user_id', userId);
         profileData = profileDataArray?.[0];
       } catch (profileRlsError) {
         console.warn('RLS blocking user_profiles table:', profileRlsError);
@@ -98,12 +98,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Try to get company data if user is a company
       let companyData = null;
-      if (userData?.user_type === 'company') {
+      if (userData?.tu_user_type === 'company') {
         try {
           const { data: companyDataArray } = await supabase
-            .from('companies')
+            .from('tbl_companies')
             .select('*')
-            .eq('user_id', userId);
+            .eq('tc_user_id', userId);
           companyData = companyDataArray?.[0];
         } catch (companyRlsError) {
           console.warn('RLS blocking companies table:', companyRlsError);
@@ -114,11 +114,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let subscriptionData = null;
       try {
         const { data: subscriptionDataArray } = await supabase
-          .from('user_subscriptions')
+          .from('tbl_user_subscriptions')
           .select('*')
-          .eq('user_id', userId)
-          .eq('status', 'active')
-          .gte('end_date', new Date().toISOString());
+          .eq('tus_user_id', userId)
+          .eq('tus_status', 'active')
+          .gte('tus_end_date', new Date().toISOString());
         subscriptionData = subscriptionDataArray?.[0];
       } catch (subscriptionRlsError) {
         console.warn('RLS blocking user_subscriptions table:', subscriptionRlsError);
@@ -129,16 +129,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const user: User = {
         id: userId,
-        email: session?.user?.email || userData?.email || 'unknown@example.com',
-        firstName: profileData?.first_name,
-        lastName: profileData?.last_name,
-        companyName: companyData?.company_name,
-        userType: userData?.user_type || 'customer', // Default to customer if RLS blocks access
-        sponsorshipNumber: profileData?.sponsorship_number,
-        parentId: profileData?.parent_account,
-        isVerified: userData?.is_verified || false,
+        email: session?.user?.email || userData?.tu_email || 'unknown@example.com',
+        firstName: profileData?.tup_first_name,
+        lastName: profileData?.tup_last_name,
+        companyName: companyData?.tc_company_name,
+        userType: userData?.tu_user_type || 'customer', // Default to customer if RLS blocks access
+        sponsorshipNumber: profileData?.tup_sponsorship_number,
+        parentId: profileData?.tup_parent_account,
+        isVerified: userData?.tu_is_verified || false,
         hasActivePlan: true, // Set to true for demo mode to allow dashboard access
-        mobileVerified: userData?.mobile_verified || false
+        mobileVerified: userData?.tu_mobile_verified || false
       };
 
       setUser(user);
@@ -160,16 +160,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If username provided, we need to get the email from user_profiles
       if (!isEmail) {
         const { data: profileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('user_id, users!inner(email)')
-          .eq('username', emailOrUsername)
+          .from('tbl_user_profiles')
+          .select('tup_user_id, tbl_users!inner(tu_email)')
+          .eq('tup_username', emailOrUsername)
           .single();
         
         if (profileError || !profileData) {
           throw new Error('Username not found');
         }
         
-        actualEmail = profileData.users.email;
+        actualEmail = profileData.tbl_users.tu_email;
       }
       
       // Authenticate with Supabase
@@ -189,13 +189,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fetch user data will be handled by the useEffect hook
       // Log login activity
       await supabase
-        .from('user_activity_logs')
+        .from('tbl_user_activity_logs')
         .insert({
-          user_id: authData.user.id,
-          activity_type: 'login',
-          ip_address: 'unknown',
-          user_agent: navigator.userAgent,
-          login_time: new Date().toISOString()
+          tual_user_id: authData.user.id,
+          tual_activity_type: 'login',
+          tual_ip_address: 'unknown',
+          tual_user_agent: navigator.userAgent,
+          tual_login_time: new Date().toISOString()
         });
       
       notification.showSuccess('Login Successful!', 'Welcome back!');
@@ -264,13 +264,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Log registration activity
       await supabase
-        .from('user_activity_logs')
+        .from('tbl_user_activity_logs')
         .insert({
-          user_id: authData.user.id,
-          activity_type: 'registration',
-          ip_address: 'unknown',
-          user_agent: navigator.userAgent,
-          login_time: new Date().toISOString()
+          tual_user_id: authData.user.id,
+          tual_activity_type: 'registration',
+          tual_ip_address: 'unknown',
+          tual_user_agent: navigator.userAgent,
+          tual_login_time: new Date().toISOString()
         });
       
       notification.showSuccess('Registration Successful!', 'Your account has been created successfully.');
@@ -285,13 +285,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Log logout activity before signing out
     if (user) {
       supabase
-        .from('user_activity_logs')
+        .from('tbl_user_activity_logs')
         .insert({
-          user_id: user.id,
-          activity_type: 'logout',
-          ip_address: 'unknown',
-          user_agent: navigator.userAgent,
-          logout_time: new Date().toISOString()
+          tual_user_id: user.id,
+          tual_activity_type: 'logout',
+          tual_ip_address: 'unknown',
+          tual_user_agent: navigator.userAgent,
+          tual_logout_time: new Date().toISOString()
         })
         .then(({ error }) => {
           if (error) console.warn('Failed to log logout activity:', error);

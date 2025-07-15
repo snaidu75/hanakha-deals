@@ -11,7 +11,7 @@ const SubscriptionPlans: React.FC = () => {
     navigate('/payment', { state: { planId } });
   };
 
-  const activePlans = subscriptionPlans.filter(plan => plan.isActive);
+  const activePlans = subscriptionPlans.filter(plan => plan.tsp_is_active);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -43,18 +43,18 @@ const SubscriptionPlans: React.FC = () => {
               )}
 
               <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h3>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.tsp_name}</h3>
                 <div className="flex items-center justify-center mb-4">
-                  <span className="text-4xl font-bold text-gray-900">${plan.price}</span>
-                  <span className="text-gray-600 ml-2">/{plan.duration} days</span>
+                  <span className="text-4xl font-bold text-gray-900">${plan.tsp_price}</span>
+                  <span className="text-gray-600 ml-2">/{plan.tsp_duration_days} days</span>
                 </div>
                 <p className="text-gray-600">
-                  Perfect for {plan.name.toLowerCase().includes('basic') ? 'beginners' : 'professionals'}
+                  Perfect for {plan.tsp_name.toLowerCase().includes('basic') ? 'beginners' : 'professionals'}
                 </p>
               </div>
 
               <div className="space-y-4 mb-8">
-                {plan.features.map((feature, featureIndex) => (
+                {plan.tsp_features.map((feature, featureIndex) => (
                   <div key={featureIndex} className="flex items-center space-x-3">
                     <div className="bg-green-100 rounded-full p-1">
                       <Check className="h-4 w-4 text-green-600" />
@@ -72,7 +72,7 @@ const SubscriptionPlans: React.FC = () => {
                     : 'bg-gray-900 text-white hover:bg-gray-800'
                 }`}
               >
-                Select {plan.name}
+                Select {plan.tsp_name}
               </button>
             </div>
           ))}
