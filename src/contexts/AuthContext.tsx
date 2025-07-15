@@ -2,9 +2,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, sendOTP, verifyOTP as verifyOTPAPI } from '../lib/supabase';
 import { useNotification } from '../components/ui/NotificationProvider';
 
-// Get supabaseUrl for demo mode check
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://demo.supabase.co';
-
 interface User {
   id: string;
   email: string;
@@ -154,25 +151,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (emailOrUsername: string, password: string, userType: string) => {
     try {
-      // Always use demo mode for this application
-      console.log('🔍 Using demo mode login: ', emailOrUsername.includes('@') ? emailOrUsername : `${emailOrUsername}@demo.com`);
+      console.log('🔍 Attempting production login for:', emailOrUsername);
       
-      // Demo mode - simulate successful login
-      const demoUser: User = {
-        id: 'demo-user-' + Date.now(),
-        email: emailOrUsername.includes('@') ? emailOrUsername : `${emailOrUsername}@demo.com`,
-        firstName: emailOrUsername.includes('@') ? emailOrUsername.split('@')[0] : emailOrUsername,
-        lastName: 'User',
-        userType: userType as 'customer' | 'company' | 'admin',
-        sponsorshipNumber: 'DEMO' + Math.floor(Math.random() * 1000),
-        isVerified: true,
-        hasActivePlan: true, // Always true for demo mode
-        mobileVerified: true
-      };
+      // Determine if input is email or username
+      const isEmail = emailOrUsername.includes('@');
+      let actualEmail = emailOrUsername;
       
-      setUser(demoUser);
-      notification.showSuccess('Login Successful!', `Welcome back, ${demoUser.firstName}!`);
-      return;
+      // If username provided, we need to get the email from user_profiles
+      if (!isEmail) {
+        const { data: profileData, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('user_id, users!inner(email)')
+          .eq('username', emailOrUsername)
+          .single();
+        
+        if (profileError || !profileData) {
+          throw new Error('Username not found');
+        }
+        
+        actualEmail = profileData.users.email;
+      }
+      
+      // Authenticate with Supabase
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: actualEmail,
+        password: password
+      });
+      
+      if (authError) {
+        throw new Error(authError.message);
+      }
+      
+      if (!authData.user) {
+        throw new Error('Authentication failed');
+      }
+      
+      // Fetch user data will be handled by the useEffect hook
+      // Log login activity
+      await supabase
+        .from('user_activity_logs')
+        .insert({
+          user_id: authData.user.id,
+          activity_type: 'login',
+          ip_address: 'unknown',
+          user_agent: navigator.userAgent,
+          login_time: new Date().toISOString()
+        });
+      
+      notification.showSuccess('Login Successful!', 'Welcome back!');
       
     } catch (error) {
       console.error('Login error:', error);
@@ -184,25 +210,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (userData: any, userType: string) => {
     try {
-      // Always use demo mode for this application
-      console.log('Using demo mode registration');
+      console.log('🔍 Attempting production registration for:', userData.email);
       
-      // Demo mode - simulate successful registration
-      const demoUser: User = {
-        id: 'demo-user-' + Date.now(),
+      // Register with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email,
-        firstName: userData.firstName || userData.companyName,
-        lastName: userData.lastName,
-        companyName: userData.companyName,
-        userType: userType as 'customer' | 'company' | 'admin',
-        sponsorshipNumber: 'DEMO' + Math.floor(Math.random() * 1000),
-        isVerified: true,
-        hasActivePlan: true, // Set to true for demo mode
-        mobileVerified: true
-      };
+        password: userData.password
+      });
       
-      setUser(demoUser);
-      notification.showSuccess('Registration Successful!', 'Your demo account has been created successfully.');
+      if (authError) {
+        throw new Error(authError.message);
+      }
+      
+      if (!authData.user) {
+        throw new Error('Registration failed');
+      }
+      
+      // Use the appropriate registration function based on user type
+      if (userType === 'customer') {
+        const { error: regError } = await supabase.rpc('register_customer', {
+          p_user_id: authData.user.id,
+          p_email: userData.email,
+          p_first_name: userData.firstName,
+          p_last_name: userData.lastName,
+          p_username: userData.userName,
+          p_mobile: userData.mobile,
+          p_gender: userData.gender,
+          p_parent_account: userData.parentAccount
+        });
+        
+        if (regError) {
+          throw new Error(regError.message);
+        }
+      } else if (userType === 'company') {
+        const { error: regError } = await supabase.rpc('register_company', {
+          p_user_id: authData.user.id,
+          p_email: userData.email,
+          p_company_name: userData.companyName,
+          p_brand_name: userData.brandName,
+          p_business_type: userData.businessType,
+          p_business_category: userData.businessCategory,
+          p_registration_number: userData.registrationNumber,
+          p_gstin: userData.gstin,
+          p_website_url: userData.websiteUrl,
+          p_official_email: userData.officialEmail,
+          p_affiliate_code: userData.affiliateCode
+        });
+        
+        if (regError) {
+          throw new Error(regError.message);
+        }
+      }
+      
+      // Log registration activity
+      await supabase
+        .from('user_activity_logs')
+        .insert({
+          user_id: authData.user.id,
+          activity_type: 'registration',
+          ip_address: 'unknown',
+          user_agent: navigator.userAgent,
+          login_time: new Date().toISOString()
+        });
+      
+      notification.showSuccess('Registration Successful!', 'Your account has been created successfully.');
     } catch (error) {
       const errorMessage = error.message || 'Registration failed';
       notification.showError('Registration Failed', errorMessage);
@@ -234,8 +305,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const forgotPassword = async (email: string) => {
     try {
-      // Always use demo mode
-      notification.showSuccess('Demo Mode', 'In demo mode, password reset emails are simulated.');
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      notification.showSuccess('Reset Email Sent', 'Please check your email for password reset instructions.');
     } catch (error) {
       notification.showError('Reset Failed', error.message || 'Failed to send reset email');
       throw error;
@@ -244,8 +322,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const resetPassword = async (token: string, password: string) => {
     try {
-      // Always use demo mode
-      notification.showSuccess('Demo Mode', 'Password reset simulated successfully.');
+      const { error } = await supabase.auth.updateUser({
+        password: password
+      });
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      notification.showSuccess('Password Reset', 'Your password has been updated successfully.');
     } catch (error) {
       notification.showError('Reset Failed', error.message || 'Failed to reset password');
       throw error;
@@ -254,11 +339,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyOTP = async (otp: string) => {
     try {
-      // Always use demo mode
-      if (user) {
-        setUser({ ...user, mobileVerified: true });
-        notification.showSuccess('Verification Successful', 'Mobile number verified successfully.');
+      if (!user) {
+        throw new Error('No user found');
       }
+      
+      const { data, error } = await verifyOTPAPI(user.id, otp, 'mobile');
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      // Update user state
+      setUser({ ...user, mobileVerified: true });
+      notification.showSuccess('Verification Successful', 'Mobile number verified successfully.');
     } catch (error) {
       notification.showError('Verification Failed', error.message || 'Invalid OTP code');
       throw error;

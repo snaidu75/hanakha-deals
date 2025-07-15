@@ -3,9 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 import ReCaptcha from '../../components/ui/ReCaptcha';
-import { createTestUser } from '../../utils/createTestUser';
-import { testDatabaseConnection } from '../../utils/testDatabase';
-import { createDatabaseTables } from '../../utils/createTables';
 
 const CustomerLogin: React.FC = () => {
   const { login } = useAuth();
@@ -18,52 +15,6 @@ const CustomerLogin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
   const [error, setError] = useState('');
-
-  const handleCreateTestUser = async () => {
-    // First test database connection
-    const dbTest = await testDatabaseConnection();
-    console.log('Database test result:', dbTest);
-    
-    if (!dbTest.connected) {
-      alert(`Database Error: ${dbTest.error}`);
-      return;
-    }
-    
-    const testUser = await createTestUser();
-    if (testUser) {
-      setFormData({
-        emailOrUsername: testUser.username,
-        password: testUser.password
-      });
-      alert(`Test user created! Username: ${testUser.username}, Password: ${testUser.password}`);
-    }
-  };
-
-  const handleCreateTables = async () => {
-    const result = await createDatabaseTables();
-    console.log('Create tables result:', result);
-    if (result.success) {
-      alert(`✅ Success: ${result.message}`);
-    } else {
-      alert(`❌ Failed: ${result.error}${result.suggestion ? '\n\nSuggestion: ' + result.suggestion : ''}`);
-    }
-  };
-
-  const handleTestDatabase = async () => {
-    console.log('Testing database connection...');
-    const result = await testDatabaseConnection();
-    console.log('Database test result:', result);
-    
-    if (result.connected) {
-      if (result.tablesAccessible) {
-        alert(`✅ Database Connected: ${result.message}`);
-      } else {
-        alert(`✅ Database Connected: ${result.message}\n\n${result.suggestion || 'RLS policies are active but authentication will still work.'}`);
-      }
-    } else {
-      alert(`❌ Database Error: ${result.error}${result.suggestion ? '\n\nSuggestion: ' + result.suggestion : ''}`);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,14 +51,6 @@ const CustomerLogin: React.FC = () => {
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-gray-900">Customer Login</h2>
             <p className="mt-2 text-gray-600">Access your MLM dashboard</p>
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-800 mb-2">
-                <strong>Demo Mode:</strong> Use any email/username and password to login
-              </p>
-              <p className="text-xs text-blue-600">
-                Example: username: "demo" | password: "demo123"
-              </p>
-            </div>
           </div>
 
           {error && (
