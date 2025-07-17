@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, sendOTP, verifyOTP as verifyOTPAPI } from '../lib/supabase';
+import { supabase, sendOTP, verifyOTP as verifyOTPAPI, sessionManager } from '../lib/supabase';
 import { useNotification } from '../components/ui/NotificationProvider';
 
 interface User {
@@ -43,23 +43,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const notification = useNotification();
 
   useEffect(() => {
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        // Fetch user profile data
-        fetchUserData(session.user.id);
+    // Initialize session from sessionStorage
+    const initializeSession = async () => {
+      try {
+        // First try to restore session from sessionStorage
+        const restoredSession = await sessionManager.restoreSession();
+        
+        if (restoredSession) {
+          await fetchUserData(restoredSession.user.id);
+        } else {
+          // Check if there's a current session in Supabase
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Save the session to sessionStorage
+            sessionManager.saveSession(session);
+            await fetchUserData(session.user.id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to initialize session:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    initializeSession();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
+      if (event === 'SIGNED_IN' && session) {
+        // Save session to sessionStorage
+        sessionManager.saveSession(session);
         await fetchUserData(session.user.id);
+      } else if (event === 'SIGNED_OUT') {
+        // Remove session from sessionStorage
+        sessionManager.removeSession();
+        setUser(null);
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        // Update session in sessionStorage
+        sessionManager.saveSession(session);
       } else {
         setUser(null);
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -67,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserData = async (userId: string) => {
     try {
+      console.log('🔍 Fetching user data for:', userId);
       // Try to get user data, but handle RLS gracefully
       let userData = null;
       try {
@@ -76,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .eq('tu_id', userId);
 
         if (userError) {
+          console.log('⚠️ RLS blocking users table access:', userError.message);
           console.warn('RLS blocking users table access:', userError);
         } else if (userDataArray && userDataArray.length > 0) {
           userData = userDataArray[0];
@@ -91,6 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .from('tbl_user_profiles')
           .select('*')
           .eq('tup_user_id', userId);
+        console.log('📋 Profile data retrieved:', profileDataArray?.length || 0, 'records');
         profileData = profileDataArray?.[0];
       } catch (profileRlsError) {
         console.warn('RLS blocking user_profiles table:', profileRlsError);
@@ -104,6 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .from('tbl_companies')
             .select('*')
             .eq('tc_user_id', userId);
+          console.log('🏢 Company data retrieved:', companyDataArray?.length || 0, 'records');
           companyData = companyDataArray?.[0];
         } catch (companyRlsError) {
           console.warn('RLS blocking companies table:', companyRlsError);
@@ -119,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .eq('tus_user_id', userId)
           .eq('tus_status', 'active')
           .gte('tus_end_date', new Date().toISOString());
+        console.log('💳 Subscription data retrieved:', subscriptionDataArray?.length || 0, 'records');
         subscriptionData = subscriptionDataArray?.[0];
       } catch (subscriptionRlsError) {
         console.warn('RLS blocking user_subscriptions table:', subscriptionRlsError);
@@ -141,8 +171,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mobileVerified: userData?.tu_mobile_verified || false
       };
 
+      console.log('✅ User data compiled:', user);
       setUser(user);
     } catch (error) {
+      console.error('❌ Error fetching user data:', error);
       console.error('Error fetching user data:', error);
       // Don't show error notification for RLS issues, just log them
       console.warn('Some user data may be incomplete due to RLS policies');
@@ -215,19 +247,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Register with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email,
-        password: userData.password
+        password: userData.password,
+        options: {
+          emailRedirectTo: undefined // Disable email confirmation for demo
+        }
       });
       
       if (authError) {
+        console.error('Supabase auth error:', authError);
         throw new Error(authError.message);
       }
       
       if (!authData.user) {
+        console.error('No user data returned from Supabase');
         throw new Error('Registration failed');
+      }
+      
+      console.log('✅ Supabase auth successful, user ID:', authData.user.id);
+      
+      // Save session immediately if available
+      if (authData.session) {
+        console.log('💾 Saving session to sessionStorage');
+        sessionManager.saveSession(authData.session);
       }
       
       // Use the appropriate registration function based on user type
       if (userType === 'customer') {
+        console.log('📝 Registering customer profile...');
         const { error: regError } = await supabase.rpc('register_customer', {
           p_user_id: authData.user.id,
           p_email: userData.email,
@@ -240,9 +286,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         
         if (regError) {
+          console.error('Customer registration error:', regError);
           throw new Error(regError.message);
         }
+        console.log('✅ Customer profile created successfully');
       } else if (userType === 'company') {
+        console.log('📝 Registering company profile...');
         const { error: regError } = await supabase.rpc('register_company', {
           p_user_id: authData.user.id,
           p_email: userData.email,
@@ -258,11 +307,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         
         if (regError) {
+          console.error('Company registration error:', regError);
           throw new Error(regError.message);
         }
+        console.log('✅ Company profile created successfully');
       }
       
       // Log registration activity
+      console.log('📊 Logging registration activity...');
       await supabase
         .from('tbl_user_activity_logs')
         .insert({
@@ -273,8 +325,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tual_login_time: new Date().toISOString()
         });
       
+      console.log('✅ Registration completed successfully');
       notification.showSuccess('Registration Successful!', 'Your account has been created successfully.');
+      
+      // Fetch user data immediately after successful registration
+      if (authData.session) {
+        await fetchUserData(authData.user.id);
+      }
+      
     } catch (error) {
+      console.error('❌ Registration failed:', error);
       const errorMessage = error.message || 'Registration failed';
       notification.showError('Registration Failed', errorMessage);
       throw new Error(errorMessage);
@@ -297,6 +357,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (error) console.warn('Failed to log logout activity:', error);
         });
     }
+    
+    // Remove session from sessionStorage
+    sessionManager.removeSession();
     
     supabase.auth.signOut();
     setUser(null);

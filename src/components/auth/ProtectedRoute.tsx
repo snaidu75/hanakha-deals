@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { sessionUtils } from '../../utils/sessionUtils';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -9,6 +10,14 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, userType }) => {
   const { user, loading } = useAuth();
+
+  // Check session validity
+  const sessionInfo = sessionUtils.getSessionInfo();
+  if (!loading && !sessionInfo.isValid) {
+    // Session is invalid, clear all sessions and redirect
+    sessionUtils.clearAllSessions();
+    return <Navigate to={`/${userType}/login`} replace />;
+  }
 
   if (loading) {
     return (

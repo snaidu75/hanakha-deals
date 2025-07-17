@@ -18,8 +18,9 @@ if (import.meta.env.DEV) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true
+    persistSession: false,
+    detectSessionInUrl: true,
+    flowType: 'pkce'
   },
   global: {
     headers: {
@@ -30,6 +31,109 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     schema: 'public'
   }
 })
+
+// Custom session storage utilities
+export const sessionManager = {
+  // Save session to sessionStorage
+  saveSession: (session: any) => {
+    if (typeof window !== 'undefined' && session) {
+      try {
+        console.log('💾 Saving session to sessionStorage:', {
+          user_id: session.user?.id,
+          expires_at: session.expires_at,
+          token_type: session.token_type
+        });
+        sessionStorage.setItem('supabase-session', JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          expires_at: session.expires_at,
+          expires_in: session.expires_in,
+          token_type: session.token_type,
+          user: session.user
+        }));
+      } catch (error) {
+        console.error('❌ Failed to save session to sessionStorage:', error);
+        console.error('Failed to save session to sessionStorage:', error);
+      }
+    }
+  },
+
+  // Get session from sessionStorage
+  getSession: () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const sessionData = sessionStorage.getItem('supabase-session');
+        if (sessionData) {
+          const session = JSON.parse(sessionData);
+          // Check if session is expired
+          if (session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
+            console.log('✅ Valid session found in sessionStorage');
+            return session;
+          } else {
+            // Session expired, remove it
+            console.log('⏰ Session expired, removing from sessionStorage');
+            sessionManager.removeSession();
+            return null;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to get session from sessionStorage:', error);
+        console.error('Failed to get session from sessionStorage:', error);
+        sessionManager.removeSession();
+      }
+    }
+    console.log('❌ No valid session found in sessionStorage');
+    return null;
+  },
+
+  // Remove session from sessionStorage
+  removeSession: () => {
+    if (typeof window !== 'undefined') {
+      try {
+        console.log('🗑️ Removing session from sessionStorage');
+        sessionStorage.removeItem('supabase-session');
+      } catch (error) {
+        console.error('Failed to remove session from sessionStorage:', error);
+      }
+    }
+  },
+
+  // Check if session exists and is valid
+  hasValidSession: () => {
+    const session = sessionManager.getSession();
+    return session !== null;
+  },
+
+  // Restore session to Supabase client
+  restoreSession: async () => {
+    const session = sessionManager.getSession();
+    if (session) {
+      try {
+        console.log('🔄 Restoring session to Supabase client');
+        // Set the session in Supabase client
+        const { data, error } = await supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token
+        });
+        
+        if (error) {
+          console.error('❌ Failed to restore session:', error);
+          console.error('Failed to restore session:', error);
+          sessionManager.removeSession();
+          return null;
+        }
+        
+        console.log('✅ Session restored successfully');
+        return data.session;
+      } catch (error) {
+        console.error('Failed to restore session:', error);
+        sessionManager.removeSession();
+        return null;
+      }
+    }
+    return null;
+  }
+};
 
 // Database types
 export interface User {

@@ -55,6 +55,8 @@ const CompanyRegister: React.FC = () => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
+    
+    console.log('🚀 Starting company registration process...');
 
     if (!recaptchaToken) {
       setError('Please complete the reCAPTCHA verification');
@@ -75,9 +77,18 @@ const CompanyRegister: React.FC = () => {
     }
 
     try {
+      console.log('📝 Calling register function with company data:', {
+        email: formData.officialEmail,
+        companyName: formData.companyName,
+        registrationNumber: formData.registrationNumber
+      });
+      
       await register(formData, 'company');
+      
+      console.log('✅ Company registration successful, redirecting to dashboard...');
       navigate('/company/dashboard');
     } catch (err) {
+      console.error('❌ Company registration error in component:', err);
       // Error is now handled by notification system
     } finally {
       setIsSubmitting(false);

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { sessionManager } from '../lib/supabase';
 import { useNotification } from '../components/ui/NotificationProvider';
 
 interface AdminUser {
@@ -64,8 +65,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const notification = useNotification();
 
   useEffect(() => {
-    // Check for existing admin session
-    const sessionToken = localStorage.getItem('admin_session_token');
+    // Check for existing admin session in sessionStorage
+    const sessionToken = sessionStorage.getItem('admin_session_token');
     if (sessionToken) {
       validateSession(sessionToken);
     } else {
@@ -97,7 +98,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       setAdmin(mockAdmin);
     } catch (error) {
-      localStorage.removeItem('admin_session_token');
+      sessionStorage.removeItem('admin_session_token');
       console.error('Session validation failed:', error);
     } finally {
       setLoading(false);
@@ -109,7 +110,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Demo mode login
       if (email === 'admin@mlmplatform.com' && password === 'Admin@123456') {
         const sessionToken = 'demo-admin-session-' + Date.now();
-        localStorage.setItem('admin_session_token', sessionToken);
+        sessionStorage.setItem('admin_session_token', sessionToken);
         
         const mockAdmin: AdminUser = {
           id: 'admin-1',
@@ -143,7 +144,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const logout = () => {
-    localStorage.removeItem('admin_session_token');
+    sessionStorage.removeItem('admin_session_token');
     setAdmin(null);
     notification.showInfo('Logged Out', 'Successfully logged out of admin panel.');
   };

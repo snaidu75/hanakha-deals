@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { useEffect } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './components/ui/NotificationProvider';
+import SessionWarning from './components/ui/SessionWarning';
 import { MLMProvider } from './contexts/MLMContext';
 import { AdminProvider } from './contexts/AdminContext';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
@@ -52,6 +53,7 @@ function App() {
   return (
     <NotificationProvider>
       <AuthProvider>
+        <SessionWarning />
         <MLMProvider>
           <AdminProvider>
             <AdminAuthProvider>

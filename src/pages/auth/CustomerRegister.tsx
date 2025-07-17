@@ -31,6 +31,8 @@ const CustomerRegister: React.FC = () => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
+    
+    console.log('🚀 Starting customer registration process...');
 
     if (!recaptchaToken) {
       setError('Please complete the reCAPTCHA verification');
@@ -57,13 +59,26 @@ const CustomerRegister: React.FC = () => {
     }
 
     try {
+      console.log('📝 Calling register function with data:', {
+        email: formData.email,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        userName: formData.userName
+      });
+      
       await register(formData, 'customer');
+      
+      console.log('✅ Registration successful, checking verification requirements...');
+      
       if (settings.mobileVerificationRequired) {
+        console.log('📱 Mobile verification required, redirecting to OTP...');
         navigate('/verify-otp');
       } else {
+        console.log('💳 No mobile verification required, redirecting to subscription plans...');
         navigate('/subscription-plans');
       }
     } catch (err) {
+      console.error('❌ Registration error in component:', err);
       // Error is now handled by notification system
     } finally {
       setIsSubmitting(false);
