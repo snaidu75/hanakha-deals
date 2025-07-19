@@ -2,8 +2,15 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAdmin } from '../../contexts/AdminContext';
+import { sendOTP } from '../../lib/supabase';
 import { Eye, EyeOff, User, Mail, Phone, Users } from 'lucide-react';
 import ReCaptcha from '../../components/ui/ReCaptcha';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
 const CustomerRegister: React.FC = () => {
   const { register } = useAuth();
@@ -31,7 +38,7 @@ const CustomerRegister: React.FC = () => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
-    
+
     console.log('🚀 Starting customer registration process...');
 
     if (!recaptchaToken) {
@@ -66,12 +73,21 @@ const CustomerRegister: React.FC = () => {
         userName: formData.userName
       });
       
-      await register(formData, 'customer');
+      const userId = await register(formData, 'customer');
       
       console.log('✅ Registration successful, checking verification requirements...');
       
       if (settings.mobileVerificationRequired) {
         console.log('📱 Mobile verification required, redirecting to OTP...');
+        // Send OTP immediately after registration
+        try {
+          console.log('📤 Sending mobile OTP for verification...');
+          await sendOTP(userId, formData.mobile, 'mobile');
+          console.log('✅ Mobile OTP sent successfully');
+        } catch (otpError) {
+          console.warn('⚠️ Failed to send OTP, but registration was successful:', otpError);
+          // Don't fail registration if OTP sending fails
+        }
         navigate('/verify-otp');
       } else {
         console.log('💳 No mobile verification required, redirecting to subscription plans...');

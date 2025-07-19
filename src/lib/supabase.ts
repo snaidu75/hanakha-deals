@@ -219,6 +219,8 @@ export interface OTPVerification {
 
 // API functions
 export const sendOTP = async (userId: string, contactInfo: string, otpType: 'email' | 'mobile') => {
+  console.log('📤 Sending OTP via Supabase edge function:', { userId, contactInfo, otpType })
+  
   const { data, error } = await supabase.functions.invoke('send-otp', {
     body: {
       user_id: userId,
@@ -227,11 +229,18 @@ export const sendOTP = async (userId: string, contactInfo: string, otpType: 'ema
     }
   })
 
-  if (error) throw error
+  if (error) {
+    console.error('❌ Send OTP error:', error)
+    throw error
+  }
+  
+  console.log('✅ OTP sent successfully:', data)
   return data
 }
 
 export const verifyOTP = async (userId: string, otpCode: string, otpType: 'email' | 'mobile') => {
+  console.log('🔍 Verifying OTP via Supabase edge function:', { userId, otpCode, otpType })
+  
   const { data, error } = await supabase.functions.invoke('verify-otp', {
     body: {
       user_id: userId,
@@ -240,7 +249,12 @@ export const verifyOTP = async (userId: string, otpCode: string, otpType: 'email
     }
   })
 
-  if (error) throw error
+  if (error) {
+    console.error('❌ Verify OTP error:', error)
+    throw error
+  }
+  
+  console.log('✅ OTP verified successfully:', data)
   return data
 }
 

@@ -19,11 +19,12 @@ interface User {
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, userType: string) => Promise<void>;
-  register: (userData: any, userType: string) => Promise<void>;
+  register: (userData: any, userType: string) => Promise<string>;
   logout: () => void;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, password: string) => Promise<void>;
   verifyOTP: (otp: string) => Promise<void>;
+  sendOTPToUser: (userId: string, contactInfo: string, otpType: 'email' | 'mobile') => Promise<any>;
   loading: boolean;
 }
 
@@ -332,7 +333,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (authData.session) {
         await fetchUserData(authData.user.id);
       }
-      
+
+      return authData.user.id;
+
     } catch (error) {
       console.error('❌ Registration failed:', error);
       const errorMessage = error.message || 'Registration failed';
@@ -406,17 +409,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('No user found');
       }
       
-      const { data, error } = await verifyOTPAPI(user.id, otp, 'mobile');
+      console.log('🔍 Starting OTP verification for user:', user.id)
+      const result = await verifyOTPAPI(user.id, otp, 'mobile');
       
-      if (error) {
-        throw new Error(error.message);
+      if (!result.success) {
+        throw new Error(result.error || 'OTP verification failed');
       }
       
+      console.log('✅ OTP verification successful')
       // Update user state
       setUser({ ...user, mobileVerified: true });
       notification.showSuccess('Verification Successful', 'Mobile number verified successfully.');
     } catch (error) {
+      console.error('❌ OTP verification failed:', error)
       notification.showError('Verification Failed', error.message || 'Invalid OTP code');
+      throw error;
+    }
+  };
+
+  const sendOTPToUser = async (userId: string, contactInfo: string, otpType: 'email' | 'mobile') => {
+    try {
+      console.log('📤 Sending OTP to user:', { userId, contactInfo, otpType });
+      const result = await sendOTP(userId, contactInfo, otpType);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to send OTP');
+      }
+      
+      console.log('✅ OTP sent successfully');
+      notification.showSuccess('OTP Sent', `Verification code sent to ${contactInfo}`);
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to send OTP:', error);
+      notification.showError('Send Failed', error.message || 'Failed to send OTP');
       throw error;
     }
   };
@@ -429,6 +454,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     forgotPassword,
     resetPassword,
     verifyOTP,
+    sendOTPToUser,
     loading
   };
 

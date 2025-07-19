@@ -1,18 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Smartphone, RefreshCw } from 'lucide-react';
+import { Smartphone, RefreshCw, Mail } from 'lucide-react';
 
 const VerifyOTP: React.FC = () => {
-  const { user, verifyOTP } = useAuth();
+  const { user, verifyOTP, sendOTPToUser } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
   const [resendTimer, setResendTimer] = useState(30);
   const [canResend, setCanResend] = useState(false);
+  const [otpType, setOtpType] = useState<'email' | 'mobile'>('mobile');
+  const [contactInfo, setContactInfo] = useState('');
 
   useEffect(() => {
+    // Set contact info based on user data
+    if (user) {
+      if (otpType === 'email') {
+        setContactInfo(user.email);
+      } else {
+        // For mobile, we'll need to get it from user profile or use a default
+        setContactInfo('+1234567890'); // This should come from user profile
+      }
+    }
+
     if (resendTimer > 0) {
       const timer = setTimeout(() => setResendTimer(resendTimer - 1), 1000);
       return () => clearTimeout(timer);
@@ -21,6 +33,12 @@ const VerifyOTP: React.FC = () => {
     }
   }, [resendTimer]);
 
+  useEffect(() => {
+    // Send initial OTP when component mounts
+    if (user && contactInfo) {
+      handleSendOTP();
+    }
+  }, [user, contactInfo]);
   const handleOtpChange = (index: number, value: string) => {
     if (value.length <= 1 && /^\d*$/.test(value)) {
       const newOtp = [...otp];
@@ -55,20 +73,49 @@ const VerifyOTP: React.FC = () => {
     }
 
     try {
+      console.log('🔍 Submitting OTP verification:', otpString)
       await verifyOTP(otpString);
+      console.log('✅ OTP verification successful, redirecting...')
       navigate('/subscription-plans');
     } catch (err) {
+      console.error('❌ OTP verification failed:', err)
       setError('Invalid OTP. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleResend = () => {
+  const handleSendOTP = async () => {
+    if (!user || !contactInfo) return;
+    
+    try {
+      await sendOTPToUser(user.id, contactInfo, otpType);
+    } catch (error) {
+      console.error('Failed to send OTP:', error);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!user) {
+      setError('User not found. Please try registering again.');
+      return;
+    }
+    
     setResendTimer(30);
     setCanResend(false);
-    // Simulate resend OTP API call
-    console.log('Resending OTP...');
+    await handleSendOTP();
+    console.log('📤 Resending OTP...');
+    sendOTP(user.id, user.email, 'mobile')
+      .then(() => {
+        console.log('✅ OTP resent successfully');
+        // Show success message or update UI
+      })
+      .catch((error) => {
+        console.error('❌ Failed to resend OTP:', error);
+        setError('Failed to resend OTP. Please try again.');
+        setCanResend(true);
+        setResendTimer(0);
+      });
   };
 
   return (
@@ -76,18 +123,55 @@ const VerifyOTP: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         <div className="bg-white p-8 rounded-2xl shadow-xl">
           <div className="text-center mb-8">
-            <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Smartphone className="h-8 w-8 text-indigo-600" />
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+              otpType === 'mobile' ? 'bg-indigo-100' : 'bg-green-100'
+            }`}>
+              {otpType === 'mobile' ? (
+                <Smartphone className={`h-8 w-8 ${otpType === 'mobile' ? 'text-indigo-600' : 'text-green-600'}`} />
+              ) : (
+                <Mail className="h-8 w-8 text-green-600" />
+              )}
             </div>
-            <h2 className="text-3xl font-bold text-gray-900">Verify Mobile Number</h2>
+            <h2 className="text-3xl font-bold text-gray-900">
+              Verify {otpType === 'mobile' ? 'Mobile Number' : 'Email Address'}
+            </h2>
             <p className="mt-2 text-gray-600">
               We've sent a 6-digit verification code to
             </p>
             <p className="font-semibold text-indigo-600">
-              {user?.email || '+1234567890'}
+              {contactInfo}
             </p>
           </div>
 
+          {/* OTP Type Selector */}
+          <div className="mb-6">
+            <div className="flex space-x-4 justify-center">
+              <button
+                type="button"
+                onClick={() => setOtpType('mobile')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                  otpType === 'mobile'
+                    ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-300'
+                    : 'bg-gray-100 text-gray-600 border-2 border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                <Smartphone className="h-4 w-4" />
+                <span>Mobile</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOtpType('email')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                  otpType === 'email'
+                    ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                    : 'bg-gray-100 text-gray-600 border-2 border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                <Mail className="h-4 w-4" />
+                <span>Email</span>
+              </button>
+            </div>
+          </div>
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-red-600 text-sm">{error}</p>
@@ -118,7 +202,11 @@ const VerifyOTP: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting || otp.join('').length !== 6}
-              className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+              className={`w-full py-3 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2 text-white ${
+                otpType === 'mobile' 
+                  ? 'bg-indigo-600 hover:bg-indigo-700' 
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
             >
               {isSubmitting ? (
                 <>

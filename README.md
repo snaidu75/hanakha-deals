@@ -83,31 +83,60 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ### 3. SMS & Email Gateway Configuration
 
-The platform includes testing credentials for:
+The platform uses Supabase integrations for reliable email and SMS delivery:
 
-**SMS Gateway (Twilio Test)**:
-- Account SID: `ACtest123456789`
-- Auth Token: `test_auth_token_123`
-- Test Phone: `+15005550006`
+**Email Service (Resend.com)**:
+- Create account at [Resend.com](https://resend.com)
+- Get your API key from Resend dashboard
+- Configure in Supabase Dashboard → Settings → Integrations → Resend
+- Add your domain and verify DNS records
+- Test email delivery through Supabase
 
-**Email SMTP (Mailtrap Test)**:
-- Host: `smtp.mailtrap.io`
-- Port: `2525`
-- Username/Password: Configure in Mailtrap dashboard
+**SMS Service (Twilio)**:
+- Create account at [Twilio.com](https://www.twilio.com)
+- Get Account SID and Auth Token from Console
+- Purchase a phone number or use trial number
+- Configure in Supabase Dashboard → Settings → Integrations → Twilio
+- Test SMS delivery through Supabase
 
 ### 4. Production Gateway Setup
 
-For production, update the system settings in the database:
+Configure your production settings through both Admin Panel and Supabase Dashboard:
 
-```sql
--- Update SMS settings
-UPDATE system_settings SET setting_value = '"your_real_account_sid"' WHERE setting_key = 'sms_gateway_account_sid';
-UPDATE system_settings SET setting_value = '"your_real_auth_token"' WHERE setting_key = 'sms_gateway_auth_token';
+1. **Access Admin Panel**: `/backpanel/login`
+   - Email: `admin@mlmplatform.com`
+   - Password: `Admin@123456`
 
--- Update Email settings
-UPDATE system_settings SET setting_value = '"your_smtp_host"' WHERE setting_key = 'smtp_host';
-UPDATE system_settings SET setting_value = '"your_smtp_username"' WHERE setting_key = 'smtp_username';
-```
+2. **Configure Email**: 
+   - Admin Panel → Settings → SMTP Settings (for reference)
+   - Supabase Dashboard → Settings → Integrations → Resend
+   - Add your Resend API key and configure sender domain
+
+3. **Configure SMS**: 
+   - Admin Panel → Settings → SMS Settings (for reference)
+   - Supabase Dashboard → Settings → Integrations → Twilio
+   - Add your Twilio credentials and phone number
+   - Test SMS delivery
+
+### 5. Resend.com Setup
+
+For Email delivery:
+1. Create account at [Resend.com](https://resend.com)
+2. Verify your domain (add DNS records)
+3. Get your API key from dashboard
+4. Configure in Supabase Dashboard → Settings → Integrations → Resend
+5. Test email delivery
+
+### 6. Twilio Setup
+
+For SMS functionality:
+1. Create free account at [Twilio.com](https://www.twilio.com)
+2. Verify your phone number
+3. Get $15.50 free trial credit
+4. Copy Account SID and Auth Token from Console
+5. Purchase a phone number (or use trial number for testing)
+6. Configure in Supabase Dashboard → Settings → Integrations → Twilio
+7. Test SMS delivery through Supabase
 
 ## Key Features
 

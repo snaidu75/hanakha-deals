@@ -76,11 +76,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const [emailSMTP, setEmailSMTP] = useState<EmailSMTP>({
-    host: 'smtp.gmail.com',
-    port: 587,
-    username: '',
-    password: '',
-    encryption: 'TLS'
+    host: 'smtp.gmail.com', // or smtp.hostinger.com for Hostinger
+    port: 587, // 465 for SSL, 587 for TLS
+    username: '', // Your Gmail email or Hostinger email
+    password: '', // Gmail App Password or Hostinger email password
+    encryption: 'TLS' // TLS or SSL
   });
 
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([

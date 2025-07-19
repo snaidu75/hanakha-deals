@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "npm run build && echo 'Build complete! Upload dist/ folder to your hosting provider'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.5",
