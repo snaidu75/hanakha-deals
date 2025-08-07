@@ -11,8 +11,9 @@ export interface SessionInfo {
 export const sessionUtils = {
   // Get detailed session information
   getSessionInfo: (): SessionInfo => {
-    const session = sessionManager.getSession();
-    
+    const currentUserId = typeof window !== 'undefined' ? sessionStorage.getItem('current-user-id') : null;
+    const session = sessionManager.getSession(currentUserId);
+
     if (!session) {
       return { isValid: false };
     }
@@ -35,7 +36,7 @@ export const sessionUtils = {
     if (!sessionInfo.isValid || !sessionInfo.timeRemaining) {
       return false;
     }
-    
+
     // Check if expires within 5 minutes (300 seconds)
     return sessionInfo.timeRemaining <= 300;
   },
@@ -43,7 +44,7 @@ export const sessionUtils = {
   // Format time remaining in human readable format
   formatTimeRemaining: (seconds: number): string => {
     if (seconds <= 0) return 'Expired';
-    
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
@@ -59,8 +60,22 @@ export const sessionUtils = {
 
   // Clear all session data (both Supabase and admin)
   clearAllSessions: () => {
-    sessionManager.removeSession();
+    const currentUserId = typeof window !== 'undefined' ? sessionStorage.getItem('current-user-id') : null;
+    sessionManager.removeSession(currentUserId);
     sessionStorage.removeItem('admin_session_token');
+  },
+
+  // Check if current page is a login page
+  isOnLoginPage: (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname;
+    return path.includes('/login') || path.includes('/register') || path.includes('/forgot-password') || path.includes('/reset-password');
+  },
+
+  // Check if current page is admin area
+  isInAdminArea: (): boolean => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.startsWith('/backpanel');
   },
 
   // Session event listeners for tab/window events
@@ -74,22 +89,58 @@ export const sessionUtils = {
     // Handle visibility change (tab switching)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        // Check session validity when tab becomes visible
-        const sessionInfo = sessionUtils.getSessionInfo();
-        if (!sessionInfo.isValid) {
-          sessionUtils.clearAllSessions();
-          // Optionally redirect to login
-          window.location.href = '/customer/login';
+        // Only check session if not on login pages
+        if (!sessionUtils.isOnLoginPage()) {
+          // Check session validity when tab becomes visible
+          const sessionInfo = sessionUtils.getSessionInfo();
+          const adminSessionToken = sessionStorage.getItem('admin_session_token');
+
+          // For admin area, check admin session
+          if (sessionUtils.isInAdminArea()) {
+            if (!adminSessionToken) {
+              // Only redirect if not already on admin login page
+              if (window.location.pathname !== '/backpanel/login') {
+                window.location.href = '/backpanel/login';
+              }
+            }
+          } else {
+            // For customer area, check Supabase session
+            if (!sessionInfo.isValid) {
+              // Only clear sessions and redirect if user was actually logged in before
+              // and not on a public page
+              const isPublicPage = ['/', '/about', '/contact', '/faq', '/policies', '/join-customer', '/join-company', '/subscription-plans'].includes(window.location.pathname);
+
+              if (!isPublicPage) {
+                sessionUtils.clearAllSessions();
+                window.location.href = '/customer/login';
+              }
+            }
+          }
         }
       }
     });
 
     // Handle storage events (for multi-tab synchronization)
     window.addEventListener('storage', (e) => {
-      if (e.key === 'supabase-session' && e.newValue === null) {
-        // Session was cleared in another tab
-        sessionUtils.clearAllSessions();
-        window.location.href = '/customer/login';
+      // Only handle storage events for the current user's session
+      const currentUserId = sessionStorage.getItem('current-user-id');
+
+      if (e.key === `supabase-session-${currentUserId}` && e.newValue === null && !sessionUtils.isOnLoginPage()) {
+        // Current user's session was cleared in another tab
+        if (!sessionUtils.isInAdminArea()) {
+          const isPublicPage = ['/', '/about', '/contact', '/faq', '/policies', '/join-customer', '/join-company', '/subscription-plans'].includes(window.location.pathname);
+          if (!isPublicPage) {
+            sessionUtils.clearAllSessions();
+            window.location.href = '/customer/login';
+          }
+        }
+      }
+
+      if (e.key === 'admin_session_token' && e.newValue === null && sessionUtils.isInAdminArea() && !sessionUtils.isOnLoginPage()) {
+        // Admin session was cleared in another tab
+        if (window.location.pathname !== '/backpanel/login') {
+          window.location.href = '/backpanel/login';
+        }
       }
     });
   }

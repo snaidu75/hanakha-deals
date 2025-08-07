@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, sendOTP, verifyOTP as verifyOTPAPI, sessionManager } from '../lib/supabase';
+import { supabase, sendOTP, verifyOTP as verifyOTPAPI, sessionManager, addUserToMLMTree } from '../lib/supabase';
 import { useNotification } from '../components/ui/NotificationProvider';
 
 interface User {
@@ -46,23 +46,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     // Initialize session from sessionStorage
     const initializeSession = async () => {
+      setLoading(true);
       try {
         // First try to restore session from sessionStorage
         const restoredSession = await sessionManager.restoreSession();
-        
+
         if (restoredSession) {
+          console.log('✅ Session restored from sessionStorage');
           await fetchUserData(restoredSession.user.id);
         } else {
           // Check if there's a current session in Supabase
+          console.log('🔍 Checking for existing Supabase session...');
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
+            console.log('✅ Found existing Supabase session');
             // Save the session to sessionStorage
             sessionManager.saveSession(session);
             await fetchUserData(session.user.id);
+          } else {
+            console.log('ℹ️ No existing session found');
           }
         }
       } catch (error) {
         console.error('Failed to initialize session:', error);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -72,18 +79,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state change:', event, session?.user?.id);
+
       if (event === 'SIGNED_IN' && session) {
+        console.log('✅ User signed in, saving session');
         // Save session to sessionStorage
         sessionManager.saveSession(session);
         await fetchUserData(session.user.id);
       } else if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out, clearing session');
         // Remove session from sessionStorage
-        sessionManager.removeSession();
+        const currentUserId = user?.id;
+        sessionManager.removeSession(currentUserId);
         setUser(null);
       } else if (event === 'TOKEN_REFRESHED' && session) {
+        console.log('🔄 Token refreshed, updating session');
         // Update session in sessionStorage
         sessionManager.saveSession(session);
-      } else {
+      } else if (event === 'SIGNED_OUT' || !session) {
+        console.log('❌ No valid session, clearing user');
         setUser(null);
       }
     });
@@ -92,15 +106,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const fetchUserData = async (userId: string) => {
+    if (!userId) {
+      console.warn('⚠️ No userId provided to fetchUserData');
+      return;
+    }
+
     try {
       console.log('🔍 Fetching user data for:', userId);
       // Try to get user data, but handle RLS gracefully
       let userData = null;
       try {
         const { data: userDataArray, error: userError } = await supabase
-          .from('tbl_users')
-          .select('*')
-          .eq('tu_id', userId);
+            .from('tbl_users')
+            .select('*')
+            .eq('tu_id', userId);
 
         if (userError) {
           console.log('⚠️ RLS blocking users table access:', userError.message);
@@ -116,9 +135,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let profileData = null;
       try {
         const { data: profileDataArray } = await supabase
-          .from('tbl_user_profiles')
-          .select('*')
-          .eq('tup_user_id', userId);
+            .from('tbl_user_profiles')
+            .select('*')
+            .eq('tup_user_id', userId);
         console.log('📋 Profile data retrieved:', profileDataArray?.length || 0, 'records');
         profileData = profileDataArray?.[0];
       } catch (profileRlsError) {
@@ -130,9 +149,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userData?.tu_user_type === 'company') {
         try {
           const { data: companyDataArray } = await supabase
-            .from('tbl_companies')
-            .select('*')
-            .eq('tc_user_id', userId);
+              .from('tbl_companies')
+              .select('*')
+              .eq('tc_user_id', userId);
           console.log('🏢 Company data retrieved:', companyDataArray?.length || 0, 'records');
           companyData = companyDataArray?.[0];
         } catch (companyRlsError) {
@@ -144,11 +163,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let subscriptionData = null;
       try {
         const { data: subscriptionDataArray } = await supabase
-          .from('tbl_user_subscriptions')
-          .select('*')
-          .eq('tus_user_id', userId)
-          .eq('tus_status', 'active')
-          .gte('tus_end_date', new Date().toISOString());
+            .from('tbl_user_subscriptions')
+            .select('*')
+            .eq('tus_user_id', userId)
+            .eq('tus_status', 'active')
+            .gte('tus_end_date', new Date().toISOString());
         console.log('💳 Subscription data retrieved:', subscriptionDataArray?.length || 0, 'records');
         subscriptionData = subscriptionDataArray?.[0];
       } catch (subscriptionRlsError) {
@@ -157,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Get current session to get email
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       const user: User = {
         id: userId,
         email: session?.user?.email || userData?.tu_email || 'unknown@example.com',
@@ -179,72 +198,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error fetching user data:', error);
       // Don't show error notification for RLS issues, just log them
       console.warn('Some user data may be incomplete due to RLS policies');
+      setUser(null);
     }
   };
 
   const login = async (emailOrUsername: string, password: string, userType: string) => {
+    setLoading(true);
     try {
       console.log('🔍 Attempting production login for:', emailOrUsername);
-      
+
       // Determine if input is email or username
       const isEmail = emailOrUsername.includes('@');
       let actualEmail = emailOrUsername;
-      
+
       // If username provided, we need to get the email from user_profiles
       if (!isEmail) {
         const { data: profileData, error: profileError } = await supabase
-          .from('tbl_user_profiles')
-          .select('tup_user_id, tbl_users!inner(tu_email)')
-          .eq('tup_username', emailOrUsername)
-          .single();
-        
+            .from('tbl_user_profiles')
+            .select('tup_user_id, tbl_users!inner(tu_email)')
+            .eq('tup_username', emailOrUsername)
+            .single();
+
         if (profileError || !profileData) {
           throw new Error('Username not found');
         }
-        
+
         actualEmail = profileData.tbl_users.tu_email;
       }
-      
+
       // Authenticate with Supabase
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: actualEmail,
         password: password
       });
-      
+
       if (authError) {
         throw new Error(authError.message);
       }
-      
+
       if (!authData.user) {
         throw new Error('Authentication failed');
       }
-      
+
       // Fetch user data will be handled by the useEffect hook
       // Log login activity
-      await supabase
-        .from('tbl_user_activity_logs')
-        .insert({
-          tual_user_id: authData.user.id,
-          tual_activity_type: 'login',
-          tual_ip_address: 'unknown',
-          tual_user_agent: navigator.userAgent,
-          tual_login_time: new Date().toISOString()
-        });
-      
+      try {
+        await supabase
+            .from('tbl_user_activity_logs')
+            .insert({
+              tual_user_id: authData.user.id,
+              tual_activity_type: 'login',
+              tual_ip_address: 'unknown',
+              tual_user_agent: navigator.userAgent,
+              tual_login_time: new Date().toISOString()
+            });
+      } catch (logError) {
+        console.warn('Failed to log login activity:', logError);
+      }
+
       notification.showSuccess('Login Successful!', 'Welcome back!');
-      
+
     } catch (error) {
       console.error('Login error:', error);
       const errorMessage = error.message || 'Login failed';
       notification.showError('Login Failed', errorMessage);
       throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
   const register = async (userData: any, userType: string) => {
     try {
       console.log('🔍 Attempting production registration for:', userData.email);
-      
+
       // Register with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email,
@@ -253,25 +280,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           emailRedirectTo: undefined // Disable email confirmation for demo
         }
       });
-      
+
       if (authError) {
         console.error('Supabase auth error:', authError);
         throw new Error(authError.message);
       }
-      
+
       if (!authData.user) {
         console.error('No user data returned from Supabase');
         throw new Error('Registration failed');
       }
-      
+
       console.log('✅ Supabase auth successful, user ID:', authData.user.id);
-      
+
       // Save session immediately if available
       if (authData.session) {
         console.log('💾 Saving session to sessionStorage');
         sessionManager.saveSession(authData.session);
       }
-      
+
       // Use the appropriate registration function based on user type
       if (userType === 'customer') {
         console.log('📝 Registering customer profile...');
@@ -285,12 +312,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           p_gender: userData.gender,
           p_parent_account: userData.parentAccount
         });
-        
+
         if (regError) {
           console.error('Customer registration error:', regError);
           throw new Error(regError.message);
         }
         console.log('✅ Customer profile created successfully');
+
+        // Add user to MLM tree if parent account is provided
+        if (userData.parentAccount) {
+          try {
+            console.log('🌳 Adding user to MLM tree with sponsor:', userData.parentAccount);
+
+            // Get the user's sponsorship number from the profile we just created
+            const { data: profileData, error: profileError } = await supabase
+                .from('tbl_user_profiles')
+                .select('tup_sponsorship_number')
+                .eq('tup_user_id', authData.user.id)
+                .single();
+
+            if (profileError) {
+              console.error('❌ Could not get sponsorship number for MLM tree placement:', profileError);
+              throw profileError;
+            }
+
+            if (profileData?.tup_sponsorship_number) {
+              console.log('📝 Attempting MLM tree placement with:', {
+                userId: authData.user.id,
+                sponsorshipNumber: profileData.tup_sponsorship_number,
+                sponsorSponsorshipNumber: userData.parentAccount
+              });
+
+              const treeResult = await addUserToMLMTree(
+                  authData.user.id,
+                  profileData.tup_sponsorship_number,
+                  userData.parentAccount
+              );
+
+              if (treeResult?.success) {
+                console.log('✅ MLM tree placement successful:', {
+                  position: treeResult.position,
+                  level: treeResult.level,
+                  parentId: treeResult.parent_id
+                });
+              } else {
+                console.error('❌ MLM tree placement failed:', treeResult);
+                throw new Error(treeResult?.error || 'MLM tree placement failed');
+              }
+            } else {
+              console.error('❌ Sponsorship number not found after profile creation');
+              throw new Error('Sponsorship number not generated');
+            }
+          } catch (treeError) {
+            console.error('❌ MLM tree placement failed:', treeError);
+            // For now, don't fail registration if tree placement fails
+            // In production, you might want to fail registration or retry
+            console.warn('⚠️ Registration completed but MLM tree placement failed');
+          }
+        }
       } else if (userType === 'company') {
         console.log('📝 Registering company profile...');
         const { error: regError } = await supabase.rpc('register_company', {
@@ -306,29 +385,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           p_official_email: userData.officialEmail,
           p_affiliate_code: userData.affiliateCode
         });
-        
+
         if (regError) {
           console.error('Company registration error:', regError);
           throw new Error(regError.message);
         }
         console.log('✅ Company profile created successfully');
       }
-      
+
       // Log registration activity
       console.log('📊 Logging registration activity...');
       await supabase
-        .from('tbl_user_activity_logs')
-        .insert({
-          tual_user_id: authData.user.id,
-          tual_activity_type: 'registration',
-          tual_ip_address: 'unknown',
-          tual_user_agent: navigator.userAgent,
-          tual_login_time: new Date().toISOString()
-        });
-      
+          .from('tbl_user_activity_logs')
+          .insert({
+            tual_user_id: authData.user.id,
+            tual_activity_type: 'registration',
+            tual_ip_address: 'unknown',
+            tual_user_agent: navigator.userAgent,
+            tual_login_time: new Date().toISOString()
+          });
+
       console.log('✅ Registration completed successfully');
       notification.showSuccess('Registration Successful!', 'Your account has been created successfully.');
-      
+
       // Fetch user data immediately after successful registration
       if (authData.session) {
         await fetchUserData(authData.user.id);
@@ -345,25 +424,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    const currentUserId = user?.id;
+
     // Log logout activity before signing out
     if (user) {
       supabase
-        .from('tbl_user_activity_logs')
-        .insert({
-          tual_user_id: user.id,
-          tual_activity_type: 'logout',
-          tual_ip_address: 'unknown',
-          tual_user_agent: navigator.userAgent,
-          tual_logout_time: new Date().toISOString()
-        })
-        .then(({ error }) => {
-          if (error) console.warn('Failed to log logout activity:', error);
-        });
+          .from('tbl_user_activity_logs')
+          .insert({
+            tual_user_id: user.id,
+            tual_activity_type: 'logout',
+            tual_ip_address: 'unknown',
+            tual_user_agent: navigator.userAgent,
+            tual_logout_time: new Date().toISOString()
+          })
+          .then(({ error }) => {
+            if (error) console.warn('Failed to log logout activity:', error);
+          });
     }
-    
+
     // Remove session from sessionStorage
-    sessionManager.removeSession();
-    
+    sessionManager.removeSession(currentUserId);
+
     supabase.auth.signOut();
     setUser(null);
     notification.showInfo('Logged Out', 'You have been successfully logged out.');
@@ -374,11 +455,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`
       });
-      
+
       if (error) {
         throw new Error(error.message);
       }
-      
+
       notification.showSuccess('Reset Email Sent', 'Please check your email for password reset instructions.');
     } catch (error) {
       notification.showError('Reset Failed', error.message || 'Failed to send reset email');
@@ -391,11 +472,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.updateUser({
         password: password
       });
-      
+
       if (error) {
         throw new Error(error.message);
       }
-      
+
       notification.showSuccess('Password Reset', 'Your password has been updated successfully.');
     } catch (error) {
       notification.showError('Reset Failed', error.message || 'Failed to reset password');
@@ -408,14 +489,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!user) {
         throw new Error('No user found');
       }
-      
+
       console.log('🔍 Starting OTP verification for user:', user.id)
       const result = await verifyOTPAPI(user.id, otp, 'mobile');
-      
+
       if (!result.success) {
         throw new Error(result.error || 'OTP verification failed');
       }
-      
+
       console.log('✅ OTP verification successful')
       // Update user state
       setUser({ ...user, mobileVerified: true });
@@ -431,11 +512,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log('📤 Sending OTP to user:', { userId, contactInfo, otpType });
       const result = await sendOTP(userId, contactInfo, otpType);
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to send OTP');
       }
-      
+
       console.log('✅ OTP sent successfully');
       notification.showSuccess('OTP Sent', `Verification code sent to ${contactInfo}`);
       return result;
@@ -459,8 +540,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+      <AuthContext.Provider value={value}>
+        {children}
+      </AuthContext.Provider>
   );
 };

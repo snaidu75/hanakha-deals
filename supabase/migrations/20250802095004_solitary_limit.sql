@@ -1,8 +1,9 @@
 /*
-  # MLM Tree Database Functions v2 - Fixed
+  # Fixed MLM Tree Integration
 
-  Adjustments:
-    - Wrapped "position" in double quotes to avoid conflicts with PostgreSQL reserved keywords
+  - Handles tree placement with breadth-first search
+  - Fixes 'position' keyword usage
+  - Adds RLS policies and security
 */
 
 -- Function to find available position in MLM tree using breadth-first search
@@ -28,7 +29,6 @@ BEGIN
 
     -- Use breadth-first search to find first available position
     WITH RECURSIVE tree_search AS (
-        -- Start with sponsor node
         SELECT
             tmt_id,
             tmt_left_child_id,
@@ -40,7 +40,6 @@ BEGIN
 
         UNION ALL
 
-        -- Recursively search children (breadth-first)
         SELECT
             mt.tmt_id,
             mt.tmt_left_child_id,
@@ -60,7 +59,7 @@ BEGIN
             END as "position",
         ts.tmt_level + 1 as level
     FROM tree_search ts
-    WHERE (ts.tmt_left_child_id IS NULL OR ts.tmt_right_child_id IS NULL)
+    WHERE ts.tmt_left_child_id IS NULL OR ts.tmt_right_child_id IS NULL
     ORDER BY ts.search_depth, ts.tmt_id
     LIMIT 1;
 
@@ -80,7 +79,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-
 -- Function to add user to MLM tree
 CREATE OR REPLACE FUNCTION add_user_to_mlm_tree_v2(
     p_user_id uuid,
@@ -93,7 +91,7 @@ DECLARE
     v_position text;
     v_level integer;
 BEGIN
-    -- Check if user already exists in tree
+    -- Check if user already exists
     SELECT tmt_id INTO v_new_node_id
     FROM tbl_mlm_tree
     WHERE tmt_user_id = p_user_id;
@@ -104,6 +102,52 @@ BEGIN
                 'error', 'User already exists in MLM tree',
                 'node_id', v_new_node_id
                );
+    END IF;
+
+    -- Ensure sponsor exists in user profiles
+    IF NOT EXISTS (
+        SELECT 1 FROM tbl_user_profiles
+        WHERE tup_sponsorship_number = p_sponsor_sponsorship_number
+    ) THEN
+        RETURN jsonb_build_object(
+                'success', false,
+                'error', 'Sponsor sponsorship number not found: ' || p_sponsor_sponsorship_number
+               );
+    END IF;
+
+    -- Ensure sponsor exists in MLM tree (or create root node)
+    IF NOT EXISTS (
+        SELECT 1 FROM tbl_mlm_tree
+        WHERE tmt_sponsorship_number = p_sponsor_sponsorship_number
+    ) THEN
+        DECLARE v_sponsor_user_id uuid;
+        BEGIN
+            SELECT tup_user_id INTO v_sponsor_user_id
+            FROM tbl_user_profiles
+            WHERE tup_sponsorship_number = p_sponsor_sponsorship_number;
+
+            INSERT INTO tbl_mlm_tree (
+                tmt_user_id,
+                tmt_parent_id,
+                tmt_left_child_id,
+                tmt_right_child_id,
+                tmt_level,
+                tmt_position,
+                tmt_sponsorship_number,
+                tmt_is_active
+            ) VALUES (
+                         v_sponsor_user_id,
+                         NULL,
+                         NULL,
+                         NULL,
+                         0,
+                         'root',
+                         p_sponsor_sponsorship_number,
+                         true
+                     );
+
+            RAISE NOTICE 'Created root node for sponsor: %', p_sponsor_sponsorship_number;
+        END;
     END IF;
 
     -- Find available position
@@ -146,7 +190,7 @@ BEGIN
                  true
              ) RETURNING tmt_id INTO v_new_node_id;
 
-    -- Update parent node to link to new child
+    -- Link new node to parent
     IF v_position = 'left' THEN
         UPDATE tbl_mlm_tree
         SET tmt_left_child_id = v_new_node_id,
@@ -170,9 +214,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- ✅ No changes required to the other two functions unless "position" is used as a column alias.
--- If you want me to review those two (`get_mlm_tree_structure_v2`, `get_tree_statistics_v2`), let me know.
-
--- Grant execute permissions
+-- Granting access and policies
 GRANT EXECUTE ON FUNCTION find_available_position_v2 TO authenticated;
 GRANT EXECUTE ON FUNCTION add_user_to_mlm_tree_v2 TO authenticated;
+
+-- Create RLS policies for tbl_mlm_tree
+DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies WHERE tablename = 'tbl_mlm_tree' AND policyname = 'Users can read MLM tree data'
+        ) THEN
+            CREATE POLICY "Users can read MLM tree data" ON tbl_mlm_tree
+                FOR SELECT TO authenticated
+                USING (true);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies WHERE tablename = 'tbl_mlm_tree' AND policyname = 'Users can insert into MLM tree'
+        ) THEN
+            CREATE POLICY "Users can insert into MLM tree" ON tbl_mlm_tree
+                FOR INSERT TO authenticated
+                WITH CHECK (auth.uid() = tmt_user_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies WHERE tablename = 'tbl_mlm_tree' AND policyname = 'Users can update MLM tree'
+        ) THEN
+            CREATE POLICY "Users can update MLM tree" ON tbl_mlm_tree
+                FOR UPDATE TO authenticated
+                USING (true);
+        END IF;
+    END $$;
