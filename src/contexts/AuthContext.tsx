@@ -41,37 +41,47 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
   const notification = useNotification();
 
   useEffect(() => {
     // Initialize session from sessionStorage
     const initializeSession = async () => {
+      if (isInitialized) return; // Prevent multiple initializations
+
       setLoading(true);
       try {
-        // First try to restore session from sessionStorage
-        const restoredSession = await sessionManager.restoreSession();
+        console.log('🔍 Initializing authentication...');
 
-        if (restoredSession) {
-          console.log('✅ Session restored from sessionStorage');
-          await fetchUserData(restoredSession.user.id);
+        // First, check if there's an existing Supabase session
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+
+        if (existingSession?.user) {
+          console.log('✅ Found existing Supabase session:', existingSession.user.id);
+          // Save to sessionStorage if not already saved
+          sessionManager.saveSession(existingSession);
+          await fetchUserData(existingSession.user.id);
         } else {
-          // Check if there's a current session in Supabase
-          console.log('🔍 Checking for existing Supabase session...');
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            console.log('✅ Found existing Supabase session');
-            // Save the session to sessionStorage
-            sessionManager.saveSession(session);
-            await fetchUserData(session.user.id);
+          // Try to restore from sessionStorage
+          console.log('🔍 Checking sessionStorage for saved session...');
+          const restoredSession = await sessionManager.restoreSession();
+
+          if (restoredSession?.user) {
+            console.log('✅ Session restored from sessionStorage:', restoredSession.user.id);
+            await fetchUserData(restoredSession.user.id);
           } else {
             console.log('ℹ️ No existing session found');
+            setUser(null);
           }
         }
       } catch (error) {
-        console.error('Failed to initialize session:', error);
+        console.error('❌ Failed to initialize session:', error);
+        // Clear any corrupted session data
+        sessionManager.removeSession();
         setUser(null);
       } finally {
         setLoading(false);
+        setIsInitialized(true);
       }
     };
 
@@ -79,31 +89,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isInitialized) return; // Don't process auth changes until initialized
+
       console.log('🔄 Auth state change:', event, session?.user?.id);
 
-      if (event === 'SIGNED_IN' && session) {
-        console.log('✅ User signed in, saving session');
-        // Save session to sessionStorage
-        sessionManager.saveSession(session);
-        await fetchUserData(session.user.id);
-      } else if (event === 'SIGNED_OUT') {
-        console.log('👋 User signed out, clearing session');
-        // Remove session from sessionStorage
-        const currentUserId = user?.id;
-        sessionManager.removeSession(currentUserId);
-        setUser(null);
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        console.log('🔄 Token refreshed, updating session');
-        // Update session in sessionStorage
-        sessionManager.saveSession(session);
-      } else if (event === 'SIGNED_OUT' || !session) {
-        console.log('❌ No valid session, clearing user');
+      try {
+        if (event === 'SIGNED_IN' && session?.user) {
+          console.log('✅ User signed in, saving session');
+          sessionManager.saveSession(session);
+          await fetchUserData(session.user.id);
+        } else if (event === 'SIGNED_OUT' || !session) {
+          console.log('👋 User signed out, clearing session');
+          const currentUserId = user?.id;
+          sessionManager.removeSession(currentUserId);
+          setUser(null);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          console.log('🔄 Token refreshed, updating session');
+          sessionManager.saveSession(session);
+          // Optionally refresh user data if needed
+          if (!user || user.id !== session.user.id) {
+            await fetchUserData(session.user.id);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error handling auth state change:', error);
+        sessionManager.removeSession();
         setUser(null);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [isInitialized, user?.id]);
 
   const fetchUserData = async (userId: string) => {
     if (!userId) {
@@ -113,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       console.log('🔍 Fetching user data for:', userId);
+
       // Try to get user data, but handle RLS gracefully
       let userData = null;
       try {
@@ -123,12 +142,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (userError) {
           console.log('⚠️ RLS blocking users table access:', userError.message);
-          console.warn('RLS blocking users table access:', userError);
         } else if (userDataArray && userDataArray.length > 0) {
           userData = userDataArray[0];
         }
-      } catch (relsError) {
-        console.warn('RLS blocking users table:', relsError);
+      } catch (rlsError) {
+        console.warn('RLS blocking users table:', rlsError);
       }
 
       // Try to get profile data
@@ -183,11 +201,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         firstName: profileData?.tup_first_name,
         lastName: profileData?.tup_last_name,
         companyName: companyData?.tc_company_name,
-        userType: userData?.tu_user_type || 'customer', // Default to customer if RLS blocks access
+        userType: userData?.tu_user_type || 'customer',
         sponsorshipNumber: profileData?.tup_sponsorship_number,
         parentId: profileData?.tup_parent_account,
         isVerified: userData?.tu_is_verified || false,
-        hasActivePlan: true, // Set to true for demo mode to allow dashboard access
+        hasActivePlan: true, // Set to true for demo mode
         mobileVerified: userData?.tu_mobile_verified || false
       };
 
@@ -195,9 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(user);
     } catch (error) {
       console.error('❌ Error fetching user data:', error);
-      console.error('Error fetching user data:', error);
-      // Don't show error notification for RLS issues, just log them
-      console.warn('Some user data may be incomplete due to RLS policies');
+      // Don't throw error, just set user to null
       setUser(null);
     }
   };
@@ -205,13 +221,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (emailOrUsername: string, password: string, userType: string) => {
     setLoading(true);
     try {
-      console.log('🔍 Attempting production login for:', emailOrUsername);
+      console.log('🔍 Attempting login for:', emailOrUsername);
+
+      // Clear any existing session data first
+      console.log('🧹 Clearing existing session data...');
+      sessionManager.removeSession();
+      await supabase.auth.signOut();
+      setUser(null);
+
+      // Small delay to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Determine if input is email or username
       const isEmail = emailOrUsername.includes('@');
       let actualEmail = emailOrUsername;
 
-      // If username provided, we need to get the email from user_profiles
+      // If username provided, get the email from user_profiles
       if (!isEmail) {
         const { data: profileData, error: profileError } = await supabase
             .from('tbl_user_profiles')
@@ -222,7 +247,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (profileError || !profileData) {
           throw new Error('Username not found');
         }
-
         actualEmail = profileData.tbl_users.tu_email;
       }
 
@@ -236,11 +260,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(authError.message);
       }
 
-      if (!authData.user) {
-        throw new Error('Authentication failed');
+      if (!authData.user || !authData.session) {
+        throw new Error('Authentication failed - no session created');
       }
 
-      // Fetch user data will be handled by the useEffect hook
+      // Explicitly save the session
+      console.log('💾 Saving session after login...');
+      sessionManager.saveSession(authData.session);
+
       // Log login activity
       try {
         await supabase
@@ -256,12 +283,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('Failed to log login activity:', logError);
       }
 
+      // Fetch user data explicitly
+      await fetchUserData(authData.user.id);
+
       notification.showSuccess('Login Successful!', 'Welcome back!');
 
-    } catch (error) {
-      console.error('Login error:', error);
-      const errorMessage = error.message || 'Login failed';
+    } catch (error: any) {
+      console.error('❌ Login error:', error);
+      const errorMessage = error?.message || 'Login failed';
       notification.showError('Login Failed', errorMessage);
+
+      // Clear any partial session data on error
+      sessionManager.removeSession();
+      setUser(null);
+
       throw new Error(errorMessage);
     } finally {
       setLoading(false);
@@ -269,8 +304,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (userData: any, userType: string) => {
+    setLoading(true);
     try {
-      console.log('🔍 Attempting production registration for:', userData.email);
+      console.log('🔍 Attempting registration for:', userData.email);
+
+      // Clear any existing session data first
+      sessionManager.removeSession();
+      await supabase.auth.signOut();
 
       // Register with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -317,14 +357,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Customer registration error:', regError);
           throw new Error(regError.message);
         }
-        console.log('✅ Customer profile created successfully');
 
         // Add user to MLM tree if parent account is provided
         if (userData.parentAccount) {
           try {
             console.log('🌳 Adding user to MLM tree with sponsor:', userData.parentAccount);
 
-            // Get the user's sponsorship number from the profile we just created
             const { data: profileData, error: profileError } = await supabase
                 .from('tbl_user_profiles')
                 .select('tup_sponsorship_number')
@@ -337,12 +375,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             if (profileData?.tup_sponsorship_number) {
-              console.log('📝 Attempting MLM tree placement with:', {
-                userId: authData.user.id,
-                sponsorshipNumber: profileData.tup_sponsorship_number,
-                sponsorSponsorshipNumber: userData.parentAccount
-              });
-
               const treeResult = await addUserToMLMTree(
                   authData.user.id,
                   profileData.tup_sponsorship_number,
@@ -350,23 +382,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               );
 
               if (treeResult?.success) {
-                console.log('✅ MLM tree placement successful:', {
-                  position: treeResult.position,
-                  level: treeResult.level,
-                  parentId: treeResult.parent_id
-                });
+                console.log('✅ MLM tree placement successful');
               } else {
                 console.error('❌ MLM tree placement failed:', treeResult);
                 throw new Error(treeResult?.error || 'MLM tree placement failed');
               }
-            } else {
-              console.error('❌ Sponsorship number not found after profile creation');
-              throw new Error('Sponsorship number not generated');
             }
           } catch (treeError) {
             console.error('❌ MLM tree placement failed:', treeError);
-            // For now, don't fail registration if tree placement fails
-            // In production, you might want to fail registration or retry
             console.warn('⚠️ Registration completed but MLM tree placement failed');
           }
         }
@@ -390,11 +413,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Company registration error:', regError);
           throw new Error(regError.message);
         }
-        console.log('✅ Company profile created successfully');
       }
 
       // Log registration activity
-      console.log('📊 Logging registration activity...');
       await supabase
           .from('tbl_user_activity_logs')
           .insert({
@@ -415,39 +436,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return authData.user.id;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Registration failed:', error);
-      const errorMessage = error.message || 'Registration failed';
+      const errorMessage = error?.message || 'Registration failed';
       notification.showError('Registration Failed', errorMessage);
+
+      // Clear any partial session data on error
+      sessionManager.removeSession();
+      setUser(null);
+
       throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
   const logout = () => {
+    setLoading(true);
     const currentUserId = user?.id;
 
-    // Log logout activity before signing out
-    if (user) {
-      supabase
-          .from('tbl_user_activity_logs')
-          .insert({
-            tual_user_id: user.id,
-            tual_activity_type: 'logout',
-            tual_ip_address: 'unknown',
-            tual_user_agent: navigator.userAgent,
-            tual_logout_time: new Date().toISOString()
-          })
-          .then(({ error }) => {
-            if (error) console.warn('Failed to log logout activity:', error);
-          });
+    try {
+      // Log logout activity before signing out
+      if (user) {
+        supabase
+            .from('tbl_user_activity_logs')
+            .insert({
+              tual_user_id: user.id,
+              tual_activity_type: 'logout',
+              tual_ip_address: 'unknown',
+              tual_user_agent: navigator.userAgent,
+              tual_logout_time: new Date().toISOString()
+            })
+            .then(({ error }) => {
+              if (error) console.warn('Failed to log logout activity:', error);
+            });
+      }
+
+      // Clear all session data
+      console.log('🧹 Clearing all session data during logout...');
+      sessionManager.removeSession(currentUserId);
+
+      // Sign out from Supabase
+      supabase.auth.signOut();
+
+      // Clear user state
+      setUser(null);
+
+      notification.showInfo('Logged Out', 'You have been successfully logged out.');
+    } catch (error) {
+      console.error('❌ Error during logout:', error);
+    } finally {
+      setLoading(false);
     }
-
-    // Remove session from sessionStorage
-    sessionManager.removeSession(currentUserId);
-
-    supabase.auth.signOut();
-    setUser(null);
-    notification.showInfo('Logged Out', 'You have been successfully logged out.');
   };
 
   const forgotPassword = async (email: string) => {
@@ -461,8 +501,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       notification.showSuccess('Reset Email Sent', 'Please check your email for password reset instructions.');
-    } catch (error) {
-      notification.showError('Reset Failed', error.message || 'Failed to send reset email');
+    } catch (error: any) {
+      notification.showError('Reset Failed', error?.message || 'Failed to send reset email');
       throw error;
     }
   };
@@ -478,8 +518,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       notification.showSuccess('Password Reset', 'Your password has been updated successfully.');
-    } catch (error) {
-      notification.showError('Reset Failed', error.message || 'Failed to reset password');
+    } catch (error: any) {
+      notification.showError('Reset Failed', error?.message || 'Failed to reset password');
       throw error;
     }
   };
@@ -490,20 +530,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('No user found');
       }
 
-      console.log('🔍 Starting OTP verification for user:', user.id)
+      console.log('🔍 Starting OTP verification for user:', user.id);
       const result = await verifyOTPAPI(user.id, otp, 'mobile');
 
       if (!result.success) {
         throw new Error(result.error || 'OTP verification failed');
       }
 
-      console.log('✅ OTP verification successful')
-      // Update user state
+      console.log('✅ OTP verification successful');
       setUser({ ...user, mobileVerified: true });
       notification.showSuccess('Verification Successful', 'Mobile number verified successfully.');
-    } catch (error) {
-      console.error('❌ OTP verification failed:', error)
-      notification.showError('Verification Failed', error.message || 'Invalid OTP code');
+    } catch (error: any) {
+      console.error('❌ OTP verification failed:', error);
+      notification.showError('Verification Failed', error?.message || 'Invalid OTP code');
       throw error;
     }
   };
@@ -520,9 +559,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('✅ OTP sent successfully');
       notification.showSuccess('OTP Sent', `Verification code sent to ${contactInfo}`);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to send OTP:', error);
-      notification.showError('Send Failed', error.message || 'Failed to send OTP');
+      notification.showError('Send Failed', error?.message || 'Failed to send OTP');
       throw error;
     }
   };

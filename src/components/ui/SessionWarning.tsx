@@ -40,7 +40,7 @@ const SessionWarning: React.FC = () => {
         sessionUtils.clearAllSessions();
       } else if (data.session) {
         // Save the refreshed session
-        import('../lib/supabase').then(({ sessionManager }) => {
+        import('../../lib/supabase').then(({ sessionManager }) => {
           sessionManager.saveSession(data.session);
         });
         setShowWarning(false);

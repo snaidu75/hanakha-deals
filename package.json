@@ -11,7 +11,7 @@
     "deploy": "npm run build && echo 'Build complete! Upload dist/ folder to your hosting provider'"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.50.5",
+    "@supabase/supabase-js": "^2.54.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

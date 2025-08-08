@@ -60,8 +60,7 @@ export const sessionUtils = {
 
   // Clear all session data (both Supabase and admin)
   clearAllSessions: () => {
-    const currentUserId = typeof window !== 'undefined' ? sessionStorage.getItem('current-user-id') : null;
-    sessionManager.removeSession(currentUserId);
+    sessionManager.clearAllSessions();
     sessionStorage.removeItem('admin_session_token');
   },
 
@@ -78,75 +77,135 @@ export const sessionUtils = {
     return window.location.pathname.startsWith('/backpanel');
   },
 
+  // Check if current page is a public page
+  isPublicPage: (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const publicPages = ['/', '/about', '/contact', '/faq', '/policies', '/join-customer', '/join-company', '/subscription-plans'];
+    return publicPages.includes(window.location.pathname);
+  },
+
   // Session event listeners for tab/window events
   setupSessionListeners: () => {
-    // Clear session when tab/window is closed
-    window.addEventListener('beforeunload', () => {
-      // Optional: You might want to keep this for better UX
-      // sessionUtils.clearAllSessions();
-    });
+    if (typeof window === 'undefined') return;
+
+    let isHandlingVisibilityChange = false;
 
     // Handle visibility change (tab switching)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        // Only check session if not on login pages
-        if (!sessionUtils.isOnLoginPage()) {
-          // Check session validity when tab becomes visible
+    document.addEventListener('visibilitychange', async () => {
+      if (isHandlingVisibilityChange) return;
+      isHandlingVisibilityChange = true;
+
+      try {
+        if (document.visibilityState === 'visible' && !sessionUtils.isOnLoginPage()) {
+          console.log('🔍 Tab became visible, checking session validity...');
+
+          // Small delay to ensure any ongoing auth operations complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+
           const sessionInfo = sessionUtils.getSessionInfo();
           const adminSessionToken = sessionStorage.getItem('admin_session_token');
 
           // For admin area, check admin session
           if (sessionUtils.isInAdminArea()) {
-            if (!adminSessionToken) {
-              // Only redirect if not already on admin login page
+            if (!adminSessionToken || adminSessionToken === 'null' || adminSessionToken === 'undefined') {
               if (window.location.pathname !== '/backpanel/login') {
+                console.log('🔒 No valid admin session, redirecting to admin login');
                 window.location.href = '/backpanel/login';
               }
             }
           } else {
             // For customer area, check Supabase session
             if (!sessionInfo.isValid) {
-              // Only clear sessions and redirect if user was actually logged in before
-              // and not on a public page
-              const isPublicPage = ['/', '/about', '/contact', '/faq', '/policies', '/join-customer', '/join-company', '/subscription-plans'].includes(window.location.pathname);
-
-              if (!isPublicPage) {
+              if (!sessionUtils.isPublicPage()) {
+                console.log('🔒 No valid user session, redirecting to customer login');
                 sessionUtils.clearAllSessions();
                 window.location.href = '/customer/login';
               }
             }
           }
         }
+      } catch (error) {
+        console.error('❌ Error in visibility change handler:', error);
+      } finally {
+        isHandlingVisibilityChange = false;
       }
     });
 
     // Handle storage events (for multi-tab synchronization)
     window.addEventListener('storage', (e) => {
-      // Only handle storage events for the current user's session
-      const currentUserId = sessionStorage.getItem('current-user-id');
+      try {
+        const currentUserId = sessionStorage.getItem('current-user-id');
 
-      if (e.key === `supabase-session-${currentUserId}` && e.newValue === null && !sessionUtils.isOnLoginPage()) {
-        // Current user's session was cleared in another tab
-        if (!sessionUtils.isInAdminArea()) {
-          const isPublicPage = ['/', '/about', '/contact', '/faq', '/policies', '/join-customer', '/join-company', '/subscription-plans'].includes(window.location.pathname);
-          if (!isPublicPage) {
+        // Handle user session cleared in another tab
+        if (e.key === `supabase-session-${currentUserId}` && e.newValue === null) {
+          if (!sessionUtils.isOnLoginPage() && !sessionUtils.isInAdminArea() && !sessionUtils.isPublicPage()) {
+            console.log('🔄 User session cleared in another tab, redirecting...');
             sessionUtils.clearAllSessions();
             window.location.href = '/customer/login';
           }
         }
-      }
 
-      if (e.key === 'admin_session_token' && e.newValue === null && sessionUtils.isInAdminArea() && !sessionUtils.isOnLoginPage()) {
-        // Admin session was cleared in another tab
-        if (window.location.pathname !== '/backpanel/login') {
-          window.location.href = '/backpanel/login';
+        // Handle current user ID changed in another tab
+        if (e.key === 'current-user-id' && e.newValue !== currentUserId) {
+          if (!sessionUtils.isOnLoginPage() && !sessionUtils.isPublicPage()) {
+            console.log('🔄 Current user changed in another tab, reloading...');
+            window.location.reload();
+          }
         }
+
+        // Handle admin session cleared in another tab
+        if (e.key === 'admin_session_token' && e.newValue === null) {
+          if (sessionUtils.isInAdminArea() && !sessionUtils.isOnLoginPage()) {
+            console.log('🔄 Admin session cleared in another tab, redirecting...');
+            if (window.location.pathname !== '/backpanel/login') {
+              window.location.href = '/backpanel/login';
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error in storage event handler:', error);
       }
     });
+
+    // Handle beforeunload (optional - for better UX, you might want to keep sessions)
+    window.addEventListener('beforeunload', () => {
+      // Optional: Clear sessions on page close
+      // Commented out for better UX - sessions will persist across browser sessions
+      // sessionUtils.clearAllSessions();
+    });
+
+    console.log('✅ Session listeners setup completed');
+  },
+
+  // Manual session refresh
+  refreshSession: async (): Promise<boolean> => {
+    try {
+      console.log('🔄 Manually refreshing session...');
+      const restoredSession = await sessionManager.restoreSession();
+      return !!restoredSession;
+    } catch (error) {
+      console.error('❌ Failed to refresh session:', error);
+      return false;
+    }
+  },
+
+  // Check if user is authenticated
+  isAuthenticated: (): boolean => {
+    const sessionInfo = sessionUtils.getSessionInfo();
+    return sessionInfo.isValid;
+  },
+
+  // Check if admin is authenticated
+  isAdminAuthenticated: (): boolean => {
+    const adminToken = sessionStorage.getItem('admin_session_token');
+    return !!(adminToken && adminToken !== 'null' && adminToken !== 'undefined');
   }
 };
 
 // Auto-setup session listeners when module is imported
 if (typeof window !== 'undefined') {
-  sessionUtils.setupSessionListeners();
+  // Setup listeners after a small delay to ensure DOM is ready
+  setTimeout(() => {
+    sessionUtils.setupSessionListeners();
+  }, 100);
 }

@@ -1,6 +1,7 @@
-import React from 'react';
-import { Navigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { sessionUtils } from '../../utils/sessionUtils';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -9,8 +10,37 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, userType }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  const [isChecking, setIsChecking] = useState(true);
 
-  if (loading) {
+  useEffect(() => {
+    // Additional session check when route changes
+    const checkSession = async () => {
+      setIsChecking(true);
+
+      try {
+        // Wait a bit for auth context to initialize
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Check if we have a valid session
+        const sessionInfo = sessionUtils.getSessionInfo();
+
+        if (!sessionInfo.isValid && !loading) {
+          console.log('🔒 No valid session found in ProtectedRoute');
+          // Session will be cleared by sessionUtils, no need to clear here
+        }
+      } catch (error) {
+        console.error('❌ Error checking session in ProtectedRoute:', error);
+      } finally {
+        setIsChecking(false);
+      }
+    };
+
+    checkSession();
+  }, [location.pathname, loading]);
+
+  // Show loading spinner while checking authentication
+  if (loading || isChecking) {
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center">
@@ -21,22 +51,35 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, userType }) =
     );
   }
 
+  // Check if user is authenticated
   if (!user) {
     console.log('🔒 No user found, redirecting to login');
-    return <Navigate to={`/${userType}/login`} replace />;
+    // Clear any stale session data
+    sessionUtils.clearAllSessions();
+    return <Navigate to={`/${userType}/login`} replace state={{ from: location }} />;
   }
 
+  // Check if user type matches the required type
   if (user.userType !== userType) {
     console.log('🔒 User type mismatch, redirecting to home');
     return <Navigate to="/" replace />;
   }
 
-  // Check if customer needs to complete verification or payment
-  if (userType === 'customer' && user.userType === 'customer') {
-    // In demo mode, all users have active plans
-    // No verification or payment checks needed
+  // Additional session validity check
+  const sessionInfo = sessionUtils.getSessionInfo();
+  if (!sessionInfo.isValid) {
+    console.log('🔒 Invalid session detected, redirecting to login');
+    sessionUtils.clearAllSessions();
+    return <Navigate to={`/${userType}/login`} replace state={{ from: location }} />;
   }
 
+  // Check if customer needs to complete verification or payment (if required)
+  if (userType === 'customer' && user.userType === 'customer') {
+    // In demo mode, all users have active plans
+    // You can add additional checks here if needed
+  }
+
+  // All checks passed, render the protected content
   return <>{children}</>;
 };
 

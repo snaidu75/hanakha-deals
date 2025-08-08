@@ -36,27 +36,30 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export const sessionManager = {
   // Save session to sessionStorage
   saveSession: (session: any) => {
-    if (typeof window !== 'undefined' && session) {
+    if (typeof window !== 'undefined' && session?.user?.id) {
       try {
         console.log('💾 Saving session to sessionStorage:', {
-          user_id: session.user?.id,
+          user_id: session.user.id,
           expires_at: session.expires_at,
           token_type: session.token_type
         });
-        const sessionKey = `supabase-session-${session.user?.id}`;
-        sessionStorage.setItem(sessionKey, JSON.stringify({
+
+        const sessionKey = `supabase-session-${session.user.id}`;
+        const sessionData = {
           access_token: session.access_token,
           refresh_token: session.refresh_token,
           expires_at: session.expires_at,
           expires_in: session.expires_in,
           token_type: session.token_type,
           user: session.user
-        }));
-        // Also store the current user ID for session management
-        sessionStorage.setItem('current-user-id', session.user?.id);
+        };
+
+        sessionStorage.setItem(sessionKey, JSON.stringify(sessionData));
+        sessionStorage.setItem('current-user-id', session.user.id);
+
+        console.log('✅ Session saved successfully');
       } catch (error) {
         console.error('❌ Failed to save session to sessionStorage:', error);
-        console.error('Failed to save session to sessionStorage:', error);
       }
     }
   },
@@ -65,31 +68,36 @@ export const sessionManager = {
   getSession: (userId?: string) => {
     if (typeof window !== 'undefined') {
       try {
-        // Get current user ID if not provided
         const currentUserId = userId || sessionStorage.getItem('current-user-id');
         if (!currentUserId) {
+          console.log('ℹ️ No current user ID found');
           return null;
         }
 
         const sessionKey = `supabase-session-${currentUserId}`;
         const sessionData = sessionStorage.getItem(sessionKey);
-        if (sessionData) {
-          const session = JSON.parse(sessionData);
-          // Check if session is expired
-          if (session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
-            console.log('✅ Valid session found in sessionStorage');
-            return session;
-          } else {
-            // Session expired, remove it
-            console.log('⏰ Session expired, removing from sessionStorage');
-            sessionManager.removeSession(currentUserId);
-            return null;
-          }
+
+        if (!sessionData) {
+          console.log('ℹ️ No session data found for user:', currentUserId);
+          return null;
         }
+
+        const session = JSON.parse(sessionData);
+
+        // Check if session is expired
+        if (session.expires_at && new Date(session.expires_at * 1000) <= new Date()) {
+          console.log('⏰ Session expired, removing from sessionStorage');
+          sessionManager.removeSession(currentUserId);
+          return null;
+        }
+
+        console.log('✅ Valid session found in sessionStorage for user:', currentUserId);
+        return session;
       } catch (error) {
         console.error('❌ Failed to get session from sessionStorage:', error);
-        console.error('Failed to get session from sessionStorage:', error);
+        // Clear corrupted session data
         sessionManager.removeSession(userId);
+        return null;
       }
     }
     return null;
@@ -100,64 +108,116 @@ export const sessionManager = {
     if (typeof window !== 'undefined') {
       try {
         if (userId) {
-          console.log('🗑️ Removing session for user:', userId);
+          console.log('🗑️ Removing session for specific user:', userId);
           const sessionKey = `supabase-session-${userId}`;
           sessionStorage.removeItem(sessionKey);
+
           // Only remove current-user-id if it matches this user
           const currentUserId = sessionStorage.getItem('current-user-id');
           if (currentUserId === userId) {
             sessionStorage.removeItem('current-user-id');
           }
         } else {
-          // Remove all sessions (fallback)
-          console.log('🗑️ Removing all sessions from sessionStorage');
+          console.log('🗑️ Removing all session data from sessionStorage');
+
+          // Remove current user session
           const currentUserId = sessionStorage.getItem('current-user-id');
           if (currentUserId) {
             sessionStorage.removeItem(`supabase-session-${currentUserId}`);
           }
           sessionStorage.removeItem('current-user-id');
+
+          // Also remove any orphaned session data
+          const keys = Object.keys(sessionStorage);
+          keys.forEach(key => {
+            if (key.startsWith('supabase-session-')) {
+              sessionStorage.removeItem(key);
+            }
+          });
         }
+        console.log('✅ Session removal completed');
       } catch (error) {
-        console.error('Failed to remove session from sessionStorage:', error);
+        console.error('❌ Failed to remove session from sessionStorage:', error);
       }
     }
   },
 
   // Check if session exists and is valid
-  hasValidSession: (userId?: string) => {
+  hasValidSession: (userId?: string): boolean => {
     const session = sessionManager.getSession(userId);
     return session !== null;
   },
 
   // Restore session to Supabase client
   restoreSession: async () => {
-    const currentUserId = typeof window !== 'undefined' ? sessionStorage.getItem('current-user-id') : null;
-    const session = sessionManager.getSession(currentUserId);
-    if (session) {
-      try {
-        console.log('🔄 Restoring session to Supabase client');
-        // Set the session in Supabase client
-        const { data, error } = await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token
-        });
+    if (typeof window === 'undefined') return null;
 
-        if (error) {
-          console.error('❌ Failed to restore session:', error);
-          console.error('Failed to restore session:', error);
-          sessionManager.removeSession(currentUserId);
-          return null;
-        }
+    try {
+      const currentUserId = sessionStorage.getItem('current-user-id');
+      const session = sessionManager.getSession(currentUserId);
 
-        console.log('✅ Session restored successfully');
-        return data.session;
-      } catch (error) {
-        console.error('Failed to restore session:', error);
+      if (!session) {
+        console.log('ℹ️ No session to restore');
+        return null;
+      }
+
+      console.log('🔄 Attempting to restore session to Supabase client');
+
+      // Set the session in Supabase client
+      const { data, error } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      });
+
+      if (error) {
+        console.error('❌ Failed to restore session:', error);
+        // Remove invalid session
         sessionManager.removeSession(currentUserId);
         return null;
       }
+
+      if (!data.session) {
+        console.warn('⚠️ Session restored but no session data returned');
+        sessionManager.removeSession(currentUserId);
+        return null;
+      }
+
+      console.log('✅ Session restored successfully');
+
+      // Update sessionStorage with refreshed session if needed
+      if (data.session.access_token !== session.access_token) {
+        console.log('🔄 Session was refreshed during restore, updating storage');
+        sessionManager.saveSession(data.session);
+      }
+
+      return data.session;
+    } catch (error) {
+      console.error('❌ Error during session restoration:', error);
+      const currentUserId = sessionStorage.getItem('current-user-id');
+      sessionManager.removeSession(currentUserId);
+      return null;
     }
-    return null;
+  },
+  clearAllSessions: () => {
+    if (typeof window !== 'undefined') {
+      try {
+        console.log('🧹 Clearing all session data');
+
+        // Get all sessionStorage keys
+        const keys = Object.keys(sessionStorage);
+
+        // Remove all session-related keys
+        keys.forEach(key => {
+          if (key.startsWith('supabase-session-') || key === 'current-user-id') {
+            sessionStorage.removeItem(key);
+          }
+        });
+
+        console.log('✅ All session data cleared');
+      } catch (error) {
+        console.error('❌ Failed to clear all sessions:', error);
+      }
+    }
   }
 };
 
