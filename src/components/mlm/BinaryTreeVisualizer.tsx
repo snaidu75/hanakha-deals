@@ -41,41 +41,75 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
   const [maxVisibleLevels, setMaxVisibleLevels] = useState(5);
   const [loadedLevels, setLoadedLevels] = useState(new Set<number>([0, 1, 2]));
   const [actualMaxDepth, setActualMaxDepth] = useState(0);
+  const [allLevelsData, setAllLevelsData] = useState<Map<number, NodeWithParent[]>>(new Map());
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const virtualScrollRef = useRef<HTMLDivElement>(null);
 
+  // Calculate actual max depth and pre-compute all levels
+  const calculateTreeData = useCallback(() => {
+    const levelData = new Map<number, NodeWithParent[]>();
+    let maxDepth = 0;
+
+    const queue: { node: TreeNode, level: number, parent?: TreeNode }[] = [
+      { node: treeManager.getUserPosition(userId)!, level: 0 }
+    ];
+
+    while (queue.length > 0) {
+      const { node, level, parent } = queue.shift()!;
+
+      if (!node) continue;
+
+      maxDepth = Math.max(maxDepth, level);
+
+      // Add node to level data
+      if (!levelData.has(level)) {
+        levelData.set(level, []);
+      }
+
+      const nodeWithParent: NodeWithParent = {
+        ...node,
+        parentUserId: parent?.userId,
+        parentName: parent?.userData?.firstName || 'Root'
+      };
+
+      levelData.get(level)!.push(nodeWithParent);
+
+      // Add children to queue
+      const children = treeManager.getDirectChildren(node.userId);
+      if (children.left) {
+        queue.push({ node: children.left, level: level + 1, parent: node });
+      }
+      if (children.right) {
+        queue.push({ node: children.right, level: level + 1, parent: node });
+      }
+    }
+
+    setAllLevelsData(levelData);
+    setActualMaxDepth(maxDepth);
+    return { levelData, maxDepth };
+  }, [treeManager, userId]);
+
   useEffect(() => {
     treeManager.loadTree(treeData);
-    // Calculate actual max depth
-    const calculateMaxDepth = () => {
-      let maxDepth = 0;
-      const traverse = (node: TreeNode | null, depth: number) => {
-        if (!node) return;
-        maxDepth = Math.max(maxDepth, depth);
-        const children = treeManager.getDirectChildren(node.userId);
-        if (children.left) traverse(children.left, depth + 1);
-        if (children.right) traverse(children.right, depth + 1);
-      };
-      const rootNode = treeManager.getUserPosition(userId);
-      if (rootNode) traverse(rootNode, 0);
-      setActualMaxDepth(maxDepth);
-    };
-    calculateMaxDepth();
+    const userNode = treeManager.getUserPosition(userId);
 
-    // Auto-expand first few levels
-    const initialExpanded = new Set<string>();
-    const addInitialNodes = (node: TreeNode | null, level: number) => {
-      if (!node || level > 2) return;
-      initialExpanded.add(node.userId);
-      const children = treeManager.getDirectChildren(node.userId);
-      if (children.left) addInitialNodes(children.left, level + 1);
-      if (children.right) addInitialNodes(children.right, level + 1);
-    };
-    const rootNode = treeManager.getUserPosition(userId);
-    if (rootNode) addInitialNodes(rootNode, 0);
-    setExpandedNodes(initialExpanded);
-  }, [treeData, treeManager, userId]);
+    if (userNode) {
+      calculateTreeData();
+
+      // Auto-expand first few levels
+      const initialExpanded = new Set<string>();
+      const addInitialNodes = (node: TreeNode | null, level: number) => {
+        if (!node || level > 2) return;
+        initialExpanded.add(node.userId);
+        const children = treeManager.getDirectChildren(node.userId);
+        if (children.left) addInitialNodes(children.left, level + 1);
+        if (children.right) addInitialNodes(children.right, level + 1);
+      };
+      addInitialNodes(userNode, 0);
+      setExpandedNodes(initialExpanded);
+    }
+  }, [treeData, treeManager, userId, calculateTreeData]);
 
   const userNode = treeManager.getUserPosition(userId);
   const stats = treeManager.getTreeStats(userId);
@@ -88,64 +122,47 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
         newExpanded.delete(nodeId);
       } else {
         newExpanded.add(nodeId);
-        setLoadedLevels(prev => new Set([...prev, level + 1, level + 2]));
+        // Ensure next levels are loaded when expanding
+        setLoadedLevels(prevLevels => {
+          const newLevels = new Set(prevLevels);
+          newLevels.add(level + 1);
+          newLevels.add(level + 2);
+          return newLevels;
+        });
       }
       return newExpanded;
     });
   }, []);
 
-  // Load more levels on demand - with proper validation
+  // Load more levels on demand - FIXED VERSION
   const loadMoreLevels = useCallback(() => {
-    const maxCurrentLevel = Math.max(...loadedLevels);
-    if (maxCurrentLevel >= actualMaxDepth) {
-      return; // No more levels to load
-    }
+    const maxCurrentLevel = Math.max(...Array.from(loadedLevels));
+    const levelsToLoad = Math.min(3, actualMaxDepth - maxCurrentLevel);
 
-    const newLevels = new Set(loadedLevels);
-    const levelsToAdd = Math.min(3, actualMaxDepth - maxCurrentLevel);
-    for (let i = maxCurrentLevel + 1; i <= maxCurrentLevel + levelsToAdd; i++) {
-      newLevels.add(i);
-    }
-    setLoadedLevels(newLevels);
-    setMaxVisibleLevels(prev => Math.min(actualMaxDepth + 1, prev + levelsToAdd));
-  }, [loadedLevels, actualMaxDepth]);
+    if (levelsToLoad <= 0) return;
 
-  // Get all nodes at a specific level with parent information
-  const getNodesAtLevel = useCallback((level: number): NodeWithParent[] => {
-    const nodesAtLevel: NodeWithParent[] = [];
-    const queue: { node: TreeNode, currentLevel: number, parent?: TreeNode }[] = [
-      { node: userNode!, currentLevel: 0 }
-    ];
-
-    while (queue.length > 0) {
-      const { node, currentLevel, parent } = queue.shift()!;
-
-      if (currentLevel === level) {
-        const nodeWithParent: NodeWithParent = {
-          ...node,
-          parentUserId: parent?.userId,
-          parentName: parent?.userData?.firstName || 'Root'
-        };
-        nodesAtLevel.push(nodeWithParent);
-      } else if (currentLevel < level) {
-        const children = treeManager.getDirectChildren(node.userId);
-        if (children.left) {
-          queue.push({ node: children.left, currentLevel: currentLevel + 1, parent: node });
-        }
-        if (children.right) {
-          queue.push({ node: children.right, currentLevel: currentLevel + 1, parent: node });
+    setLoadedLevels(prevLevels => {
+      const newLevels = new Set(prevLevels);
+      for (let i = maxCurrentLevel + 1; i <= maxCurrentLevel + levelsToLoad; i++) {
+        if (i <= actualMaxDepth) {
+          newLevels.add(i);
         }
       }
-    }
+      return newLevels;
+    });
 
-    return nodesAtLevel;
-  }, [userNode, treeManager]);
+    setMaxVisibleLevels(prev => Math.min(actualMaxDepth + 1, prev + levelsToLoad));
+  }, [loadedLevels, actualMaxDepth]);
+
+  // Get nodes at specific level from pre-computed data
+  const getNodesAtLevel = useCallback((level: number): NodeWithParent[] => {
+    return allLevelsData.get(level) || [];
+  }, [allLevelsData]);
 
   // Check if level exists
   const levelExists = useCallback((level: number): boolean => {
-    const nodesAtLevel = getNodesAtLevel(level);
-    return nodesAtLevel.length > 0;
-  }, [getNodesAtLevel]);
+    return allLevelsData.has(level) && allLevelsData.get(level)!.length > 0;
+  }, [allLevelsData]);
 
   // Compact node component for higher levels - enhanced with parent info
   const CompactNode: React.FC<{
@@ -163,9 +180,9 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
             {/* Parent Information */}
             {level > 0 && node.parentName && (
                 <div className="text-xs text-gray-500 mb-2 flex items-center">
-                  <span className="bg-gray-100 px-2 py-1 rounded-full">
-                    Under: {node.parentName}
-                  </span>
+              <span className="bg-gray-100 px-2 py-1 rounded-full">
+                Under: {node.parentName}
+              </span>
                 </div>
             )}
 
@@ -209,16 +226,16 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                      Level {level}
-                    </span>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                    Level {level}
+                  </span>
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                         node.position === 'left' ? 'bg-blue-100 text-blue-700' :
                             node.position === 'right' ? 'bg-green-100 text-green-700' :
                                 'bg-purple-100 text-purple-700'
                     }`}>
-                      {node.position === 'left' ? 'Left' : node.position === 'right' ? 'Right' : 'Root'}
-                    </span>
+                    {node.position === 'left' ? 'Left' : node.position === 'right' ? 'Right' : 'Root'}
+                  </span>
                   </div>
                 </div>
               </div>
@@ -228,7 +245,7 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
     );
   };
 
-  // Detailed node for lower levels
+  // Enhanced detailed node for lower levels with better children handling
   const DetailedNode: React.FC<{
     node: TreeNode | null;
     position: 'left' | 'right' | 'root';
@@ -282,7 +299,7 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
           </div>
 
           {/* Expansion Controls */}
-          {hasChildren && level < 3 && (
+          {hasChildren && level < maxVisibleLevels && (
               <button
                   onClick={() => toggleNodeExpansion(node.userId, level)}
                   className="mt-2 w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
@@ -291,8 +308,8 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
               </button>
           )}
 
-          {/* Children (only for first few levels) */}
-          {level < 3 && isExpanded && hasChildren && (
+          {/* Children (only for loaded levels) */}
+          {level < maxVisibleLevels && isExpanded && hasChildren && loadedLevels.has(level + 1) && (
               <div className="mt-4 flex justify-center" style={{ minWidth: '200px' }}>
                 <div className="flex items-start" style={{ gap: '40px' }}>
                   {nodeChildren.left && (
@@ -334,9 +351,9 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-lg font-semibold text-gray-900 flex items-center">
-              <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium mr-3">
-                Level {level}
-              </span>
+            <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium mr-3">
+              Level {level}
+            </span>
               <span className="text-gray-600 text-sm">{nodesAtLevel.length} members</span>
             </h4>
           </div>
@@ -377,14 +394,15 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
   };
 
   const renderTreeView = () => {
+    const sortedLoadedLevels = Array.from(loadedLevels).sort((a, b) => a - b);
+    const maxLoadedLevel = Math.max(...sortedLoadedLevels);
+    const hasMoreLevels = maxLoadedLevel < actualMaxDepth;
+
     switch (viewMode) {
       case 'breadth-first':
-        const maxLoadedLevel = Math.max(...loadedLevels);
-        const hasMoreLevels = maxLoadedLevel < actualMaxDepth;
-
         return (
             <div className="space-y-6">
-              {Array.from(loadedLevels).sort((a, b) => a - b).map(level => (
+              {sortedLoadedLevels.map(level => (
                   <LevelView key={level} level={level} />
               ))}
 
@@ -412,11 +430,48 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
 
       case 'compact':
         return (
-            <div className="space-y-4">
+            <div className="space-y-8">
               <DetailedNode node={userNode} position="root" level={0} />
-              {Array.from(loadedLevels).filter(l => l > 3).sort().map(level => (
+
+              {/* Show compact level views for levels beyond the tree view */}
+              {sortedLoadedLevels.filter(l => l > 2).map(level => (
                   <LevelView key={level} level={level} />
               ))}
+
+              {hasMoreLevels && (
+                  <div className="text-center py-6 border-t border-gray-200">
+                    <button
+                        onClick={loadMoreLevels}
+                        className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                    >
+                      Load More Levels ({maxLoadedLevel + 1} - {Math.min(actualMaxDepth, maxLoadedLevel + 3)})
+                    </button>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Showing {maxLoadedLevel + 1} of {actualMaxDepth + 1} levels
+                    </p>
+                  </div>
+              )}
+            </div>
+        );
+
+      case 'detailed':
+        return (
+            <div className="space-y-8">
+              <DetailedNode node={userNode} position="root" level={0} />
+
+              {maxVisibleLevels < actualMaxDepth && (
+                  <div className="text-center py-6 border-t border-gray-200">
+                    <button
+                        onClick={() => setMaxVisibleLevels(prev => Math.min(actualMaxDepth + 1, prev + 3))}
+                        className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                    >
+                      Show More Levels in Tree View
+                    </button>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Tree view showing {maxVisibleLevels} of {actualMaxDepth + 1} levels
+                    </p>
+                  </div>
+              )}
             </div>
         );
 
@@ -485,6 +540,8 @@ const BinaryTreeVisualizer: React.FC<BinaryTreeVisualizerProps> = ({
                     setZoomLevel(1);
                     setExpandedNodes(new Set([userId]));
                     setSelectedNode(null);
+                    setLoadedLevels(new Set([0, 1, 2]));
+                    setMaxVisibleLevels(5);
                   }}
                   className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                   title="Reset View"
